@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { Plus, FileText, Trash2, FolderOpen, HardDrive } from 'lucide-react'
+import { Plus, FileText, Trash2, FolderOpen, HardDrive, FileUp } from 'lucide-react'
 import type { NoteMetadata } from '../types'
 
 interface Props {
@@ -12,6 +12,7 @@ interface Props {
   onCreate: () => void
   onDelete: (id: string) => void
   onChooseDirectory: () => void
+  onImport: (file: File) => void
 }
 
 function formatDate(iso: string): string {
@@ -28,9 +29,10 @@ function formatDate(iso: string): string {
 // zero-width (not yet reliably focusable) element in some browsers.
 const SIDEBAR_TRANSITION_MS = 200
 
-export function Sidebar({ notes, activeId, folderName, isUsingFolder, collapsed, onOpen, onCreate, onDelete, onChooseDirectory }: Props) {
+export function Sidebar({ notes, activeId, folderName, isUsingFolder, collapsed, onOpen, onCreate, onDelete, onChooseDirectory, onImport }: Props) {
   const itemRefs = useRef<(HTMLDivElement | null)[]>([])
   const wasCollapsed = useRef(collapsed)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Move focus into the note list whenever the sidebar opens, so arrow keys work immediately.
   useEffect(() => {
@@ -77,9 +79,25 @@ export function Sidebar({ notes, activeId, folderName, isUsingFolder, collapsed,
         <div className="sidebar-brand">
           <img src="/logo.svg" alt="htmlr" className="sidebar-logo" />
         </div>
-        <button className="icon-btn" onClick={onCreate} title="New note">
-          <Plus size={18} />
-        </button>
+        <div className="sidebar-header-actions">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".html,text/html"
+            style={{ display: 'none' }}
+            onChange={e => {
+              const file = e.target.files?.[0]
+              if (file) onImport(file)
+              e.target.value = ''
+            }}
+          />
+          <button className="icon-btn" onClick={() => fileInputRef.current?.click()} title="Import .html file">
+            <FileUp size={17} />
+          </button>
+          <button className="icon-btn" onClick={onCreate} title="New note">
+            <Plus size={18} />
+          </button>
+        </div>
       </div>
 
       <div className="note-list" role="listbox" aria-label="Notes" onKeyDown={handleListKeyDown}>

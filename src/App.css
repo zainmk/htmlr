@@ -42,6 +42,13 @@
   border-bottom: 1px solid var(--border);
 }
 
+.sidebar-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
 .sidebar-toggle-btn {
   position: absolute;
   bottom: 46px;
@@ -63,7 +70,7 @@
   transition: background 0.12s ease, color 0.12s ease;
 }
 
-.sidebar-expand-btn:hover {
+.sidebar-toggle-btn:hover {
   background: var(--bg-hover);
   color: var(--text);
 }

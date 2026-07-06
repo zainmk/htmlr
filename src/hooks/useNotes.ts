@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { storage, type StorageStatus } from '../storage'
-import { renderNoteHtml, filenameFor, slugify } from '../storage/noteFile'
+import { renderNoteHtml, parseNoteHtml, filenameFor, slugify } from '../storage/noteFile'
 import type { Note, NoteMetadata, SaveStatus } from '../types'
 
 export type AppStatus = 'checking' | StorageStatus
@@ -19,13 +19,20 @@ function writeNoteIdToUrl(id: string | null, push: boolean): void {
   window.history[push ? 'pushState' : 'replaceState'](null, '', url.toString())
 }
 
-// New notes get "Untitled", "Untitled 2", etc. so creating one never collides — titles typed
-// afterward are a different matter and are blocked from colliding (see commitNote below).
-async function uniqueUntitled(): Promise<{ id: string; title: string }> {
-  if (!(await storage.hasNote('untitled'))) return { id: 'untitled', title: 'Untitled' }
+// Finds a free id by appending "-2", "-3", etc. to `base` if it's already taken.
+async function uniqueId(base: string): Promise<string> {
+  if (!(await storage.hasNote(base))) return base
   let n = 2
-  while (await storage.hasNote(`untitled-${n}`)) n++
-  return { id: `untitled-${n}`, title: `Untitled ${n}` }
+  while (await storage.hasNote(`${base}-${n}`)) n++
+  return `${base}-${n}`
+}
+
+// New blank notes get "Untitled", "Untitled 2", etc. so creating one never collides — titles
+// typed afterward are a different matter and are blocked from colliding (see commitNote below).
+async function uniqueUntitled(): Promise<{ id: string; title: string }> {
+  const id = await uniqueId('untitled')
+  const title = id === 'untitled' ? 'Untitled' : `Untitled ${id.slice('untitled-'.length)}`
+  return { id, title }
 }
 
 export function useNotes() {
@@ -224,10 +231,34 @@ export function useNotes() {
     URL.revokeObjectURL(url)
   }, [flushPending])
 
+  // Imports an .html file (e.g. picked via a file input, which works on every browser — including
+  // iOS Safari, which has no folder access at all) as a new note. Its title comes from the file
+  // itself; if that title's slug collides with an existing note, the import still succeeds under
+  // a disambiguated id rather than blocking, since there's no in-progress edit to warn about here.
+  const importNote = useCallback(async (file: File) => {
+    const html = await file.text()
+    const fallbackId = slugify(file.name.replace(/\.html?$/i, ''))
+    const parsed = parseNoteHtml(html, fallbackId)
+    if (!parsed) {
+      alert("That file doesn't look like a note htmlr can read.")
+      return
+    }
+
+    await flushPending()
+    const id = await uniqueId(slugify(parsed.title) || fallbackId)
+    const note: Note = { ...parsed, id }
+    await storage.writeNote(note)
+    await loadNoteList()
+    setActiveNote(note)
+    setSaveStatus('saved')
+    setTitleConflict(false)
+    writeNoteIdToUrl(note.id, true)
+  }, [flushPending, loadNoteList])
+
   return {
     status, folderName, noteList, activeNote, saveStatus, titleConflict,
     isUsingFolder: storage.isUsingFolder(),
     chooseDirectory, reconnect, continueWithoutFolder,
-    openNote, createNote, updateNote, deleteNote, openNoteFile,
+    openNote, createNote, updateNote, deleteNote, openNoteFile, importNote,
   }
 }

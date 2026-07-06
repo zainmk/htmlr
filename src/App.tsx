@@ -13,7 +13,7 @@ export default function App() {
     status, folderName, isUsingFolder,
     noteList, activeNote, saveStatus, titleConflict,
     chooseDirectory, reconnect, continueWithoutFolder,
-    openNote, createNote, updateNote, deleteNote, openNoteFile,
+    openNote, createNote, updateNote, deleteNote, openNoteFile, importNote,
   } = useNotes()
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === 'true')
@@ -59,6 +59,7 @@ export default function App() {
         onCreate={createNote}
         onDelete={deleteNote}
         onChooseDirectory={chooseDirectory}
+        onImport={importNote}
       />
 
       <button
