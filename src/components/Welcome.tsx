@@ -1,4 +1,4 @@
-import { FileText, Lock, Server, FolderOpen, RefreshCw } from 'lucide-react'
+import { FileText, Lock, Server, FolderUp, FolderOpen, RefreshCw } from 'lucide-react'
 import type { AppStatus } from '../hooks/useNotes'
 
 interface Props {
@@ -9,28 +9,39 @@ interface Props {
   onContinueWithoutFolder: () => void
 }
 
-const FEATURES = [
+const BASE_FEATURES = [
   {
     icon: FileText,
     title: 'Real files, not a database',
-    body: 'Every note is saved as its own self-contained .html file — readable in any browser, greppable, backed up, or moved with a simple copy-paste.',
+    body: 'Every note is saved as its own self-contained .html file — readable in any browser, greppable, backed up, moved with a copy-paste, or imported right back in.',
   },
   {
     icon: Lock,
     title: 'Your device, your control',
     body: "There's no account and no server. htmlr only reads and writes inside the folder you choose — your notes never leave your device unless you move them.",
   },
-  {
-    icon: Server,
-    title: 'Bring your own sync',
-    body: 'Point the folder at a mapped NAS share (Synology, QNAP, TrueNAS…) to read and write the same notes from every device on your network — no subscription required.',
-  },
 ]
+
+// This one's only true on a Chromium browser (Chrome, Edge) — folder access doesn't exist
+// elsewhere, so a Safari/Firefox visitor gets a card describing what they *can* actually do.
+const SYNC_FEATURE = {
+  icon: Server,
+  title: 'Bring your own sync',
+  body: 'Point the folder at a mapped NAS share (Synology, QNAP, TrueNAS…) or a mounted Google Drive to read and write the same notes from every device on your network.',
+}
+
+const MOVE_FEATURE = {
+  icon: FolderUp,
+  title: 'Move notes between devices',
+  body: 'No folder access in this browser, but notes still travel: import an .html file from another device via the sidebar, or download any note as a real file from the toolbar.',
+}
 
 export function Welcome({ status, folderName, onChooseDirectory, onReconnect, onContinueWithoutFolder }: Props) {
   if (status === 'checking') {
     return <div className="welcome" />
   }
+
+  const features = [...BASE_FEATURES, status === 'unsupported' ? MOVE_FEATURE : SYNC_FEATURE]
 
   return (
     <div className="welcome">
@@ -67,7 +78,7 @@ export function Welcome({ status, folderName, onChooseDirectory, onReconnect, on
             </p>
 
             <div className="welcome-features">
-              {FEATURES.map(({ icon: Icon, title, body }) => (
+              {features.map(({ icon: Icon, title, body }) => (
                 <div className="welcome-feature" key={title}>
                   <div className="welcome-feature-icon">
                     <Icon size={16} />
@@ -88,8 +99,9 @@ export function Welcome({ status, folderName, onChooseDirectory, onReconnect, on
                   </button>
                 </div>
                 <p className="welcome-note">
-                  On-device folder storage needs a Chromium-based browser (Chrome, Edge). You can still use htmlr
-                  here — notes will be kept in this browser's local storage instead.
+                  On-device folder storage needs a Chromium-based browser (Chrome, Edge). You can still fully write
+                  and edit notes here — they're kept in this browser's storage, and you can import notes from
+                  another device or download a copy any time.
                 </p>
               </>
             ) : (
