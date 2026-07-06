@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(run)",
+      "Skill(run:*)",
+      "Bash(npm run *)",
+      "Bash(echo \"started with pid $!\")",
+      "Bash(timeout 30 bash -c 'until curl -sf http://localhost:5173 >/dev/null; do sleep 1; done')",
+      "Read(//tmp/**)",
+      "Bash(curl -sf http://localhost:5173)",
+      "Bash(chromium-cli --session htmlr)",
+      "Bash(node -e \"console.log\\(require\\('playwright/package.json'\\).version\\)\")",
+      "Bash(node \"C:\\\\Users\\\\Zain\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Zain-Documents-Code-htmlr\\\\a367dda8-9543-48f6-8d00-974dfad7d493\\\\scratchpad\\\\screenshot.mjs\")",
+      "Bash(pkill -f \"vite\")",
+      "Bash(netstat -ano)",
+      "Bash(powershell -Command \"Stop-Process -Id 23676 -Force\")",
+      "Bash(cp \"C:\\\\Users\\\\Zain\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Zain-Documents-Code-htmlr\\\\a367dda8-9543-48f6-8d00-974dfad7d493\\\\scratchpad\\\\screenshot.mjs\" ./_screenshot_tmp.mjs)",
+      "Bash(node ./_screenshot_tmp.mjs)",
+      "Bash(rm ./_screenshot_tmp.mjs)",
+      "Bash(powershell -Command 'Get-NetTCPConnection -LocalPort 5173 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }')"
+    ]
+  }
+}
