@@ -7,6 +7,11 @@ import { Welcome } from './components/Welcome'
 import './App.css'
 
 const SIDEBAR_COLLAPSED_KEY = 'htmlr_sidebar_collapsed'
+// Below this width the sidebar's fixed 240px would crowd the editor into an unusably narrow
+// column (toolbar wraps into a tall stack, title clips). Only affects the *default* the very
+// first time someone opens the app on a given device — any explicit toggle after that is
+// remembered via localStorage and wins over this, on any screen size.
+const NARROW_VIEWPORT_BREAKPOINT = 768
 
 export default function App() {
   const {
@@ -16,7 +21,11 @@ export default function App() {
     openNote, createNote, updateNote, deleteNote, openNoteFile, importNote,
   } = useNotes()
 
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === 'true')
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    const stored = localStorage.getItem(SIDEBAR_COLLAPSED_KEY)
+    if (stored !== null) return stored === 'true'
+    return window.innerWidth < NARROW_VIEWPORT_BREAKPOINT
+  })
 
   const toggleSidebar = useCallback(() => {
     setSidebarCollapsed(prev => {
