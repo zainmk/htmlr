@@ -24,7 +24,15 @@ function idIsFree(id: string, self: Note, all: Note[], claimed: Set<string>): bo
 }
 
 /** Pulls the folder's .html files into the IndexedDB cache: adds/updates what's on disk, drops cache entries
- *  whose file is gone, and renames any legacy (non-slug, e.g. random-suffixed) filenames to clean ones. */
+ *  whose file is gone, and renames any legacy (non-slug, e.g. random-suffixed) filenames to clean ones.
+ *
+ *  For a note that exists on both sides with different content, the newer `updatedAt` wins rather than
+ *  disk always winning — this matters when the folder is a network mount (NAS, a cloud-sync client's
+ *  virtual drive) that was briefly unreachable: an edit made during that window still lands in the cache
+ *  (see `writeNote` below), but never reached the actual file. Without this check, the next reconcile
+ *  would silently overwrite that edit with the stale on-disk copy the moment the folder became reachable
+ *  again. If the cache turns out to hold the newer version, it's written back to disk here to close the
+ *  loop — not just kept in the cache. */
 async function reconcileFromDisk(): Promise<void> {
   if (!dirHandle) return
   const rawNotes = await readAllNoteFiles(dirHandle)
@@ -50,11 +58,29 @@ async function reconcileFromDisk(): Promise<void> {
 
   const diskIds = new Set(finalNotes.map(n => n.id))
   const cached = await notesCache.getAll()
+  const cachedById = new Map(cached.map(n => [n.id, n]))
+
+  // Note: a cached note with no matching disk file is treated as an external deletion (the user
+  // removed the file directly) and dropped — this is the same ambiguity as always, since a note
+  // created entirely offline and never yet written to disk looks identical from here. Unlike the
+  // same-id conflict below, there's no timestamp to disambiguate a note that doesn't exist on one
+  // side at all.
   for (const note of cached) {
     if (!diskIds.has(note.id)) await notesCache.delete(note.id)
   }
-  for (const note of finalNotes) {
-    await notesCache.put(note)
+
+  for (const diskNote of finalNotes) {
+    const cachedNote = cachedById.get(diskNote.id)
+    const cacheIsNewer = cachedNote && new Date(cachedNote.updatedAt).getTime() > new Date(diskNote.updatedAt).getTime()
+    if (cacheIsNewer) {
+      try {
+        await writeNoteFile(dirHandle, cachedNote)
+      } catch {
+        // still unreachable — leave it for the next reconcile to retry, cache already has it
+      }
+      continue // keep the newer cached version; don't let the stale disk copy overwrite it
+    }
+    await notesCache.put(diskNote)
   }
 }
 
