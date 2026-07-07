@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react'
 import { PanelLeftOpen, PanelLeftClose } from 'lucide-react'
 import { useNotes } from './hooks/useNotes'
+import { usePwaInstall } from './hooks/usePwaInstall'
 import { Sidebar } from './components/Sidebar'
 import { Editor } from './components/Editor'
 import { Welcome } from './components/Welcome'
@@ -20,6 +21,8 @@ export default function App() {
     chooseDirectory, reconnect, continueWithoutFolder,
     openNote, createNote, updateNote, deleteNote, openNoteFile, importNote,
   } = useNotes()
+
+  const { canInstall, install } = usePwaInstall()
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     const stored = localStorage.getItem(SIDEBAR_COLLAPSED_KEY)
@@ -49,9 +52,11 @@ export default function App() {
       <Welcome
         status={status}
         folderName={folderName}
+        canInstall={canInstall}
         onChooseDirectory={chooseDirectory}
         onReconnect={reconnect}
         onContinueWithoutFolder={continueWithoutFolder}
+        onInstall={install}
       />
     )
   }

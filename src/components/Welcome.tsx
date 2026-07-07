@@ -1,12 +1,14 @@
-import { FileText, Lock, Server, FolderUp, FolderOpen, RefreshCw } from 'lucide-react'
+import { FileText, Lock, Server, FolderUp, FolderOpen, RefreshCw, MonitorDown } from 'lucide-react'
 import type { AppStatus } from '../hooks/useNotes'
 
 interface Props {
   status: AppStatus
   folderName: string | null
+  canInstall: boolean
   onChooseDirectory: () => void
   onReconnect: () => void
   onContinueWithoutFolder: () => void
+  onInstall: () => void
 }
 
 const BASE_FEATURES = [
@@ -36,7 +38,7 @@ const MOVE_FEATURE = {
   body: 'No folder access in this browser, but notes still travel: import an .html file from another device via the sidebar, or download any note as a real file from the toolbar.',
 }
 
-export function Welcome({ status, folderName, onChooseDirectory, onReconnect, onContinueWithoutFolder }: Props) {
+export function Welcome({ status, folderName, canInstall, onChooseDirectory, onReconnect, onContinueWithoutFolder, onInstall }: Props) {
   if (status === 'checking') {
     return <div className="welcome" />
   }
@@ -119,6 +121,21 @@ export function Welcome({ status, folderName, onChooseDirectory, onReconnect, on
               </>
             )}
           </>
+        )}
+
+        {canInstall && (
+          <div className="welcome-install">
+            <div>
+              <div className="welcome-install-title">Install htmlr as an app</div>
+              <div className="welcome-install-body">
+                Runs in its own window and keeps working offline once installed — no browser tab needed.
+              </div>
+            </div>
+            <button className="btn-secondary" onClick={onInstall}>
+              <MonitorDown size={15} />
+              Install
+            </button>
+          </div>
         )}
       </div>
     </div>
