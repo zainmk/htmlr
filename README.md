@@ -1,10 +1,13 @@
 # htmlr
 
-A distraction-free rich-text note editor that stores everything you write as plain, self-contained HTML files — on your own device, not on a server. No account, no cloud, no subscription.
+A WYSIWYG .html note editor that stores everything you write as plain, self-contained HTML files — on your own device, not on a server. No account, no cloud, no subscription.
 
-## Why
+<img width="678" height="887" alt="image" src="https://github.com/user-attachments/assets/c81846bf-82b3-4ad6-9922-b0a8a1fdc493" />
+
+## Purpose
 
 Most note apps hold your notes hostage in a proprietary database or a company's cloud. htmlr does the opposite: every note is a real `.html` file, readable in any browser, greppable, and portable by design. You choose where those files live — a local folder, an external drive, or a mapped NAS share — and htmlr just reads and writes into it. There's nothing to export "in case you leave," because you were never locked in.
+
 
 ## Data storage strategy
 
