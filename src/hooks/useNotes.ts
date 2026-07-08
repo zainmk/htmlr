@@ -112,6 +112,22 @@ export function useNotes() {
     })()
   }, [loadNoteList, openFirstNote])
 
+  // Closing the tab, closing the installed-app window, or switching away on mobile inside the
+  // 800ms debounce window would otherwise silently drop the last burst of typing — commit it the
+  // moment the page stops being visible. (visibilitychange fires earlier and more reliably than
+  // unload-family events, giving the async storage writes the best chance to complete.)
+  useEffect(() => {
+    const onHide = () => {
+      if (document.visibilityState === 'hidden') flushPending()
+    }
+    document.addEventListener('visibilitychange', onHide)
+    window.addEventListener('pagehide', onHide)
+    return () => {
+      document.removeEventListener('visibilitychange', onHide)
+      window.removeEventListener('pagehide', onHide)
+    }
+  }, [flushPending])
+
   // Browser back/forward: re-sync activeNote from whatever the URL now points at.
   useEffect(() => {
     const onPopState = async () => {
@@ -193,11 +209,17 @@ export function useNotes() {
 
   const deleteNote = useCallback(
     async (id: string) => {
-      if (saveTimer.current) {
-        clearTimeout(saveTimer.current)
-        saveTimer.current = null
+      // A pending edit on the note being deleted dies with it; a pending edit on any *other*
+      // note must be committed, not discarded.
+      if (pendingNote.current?.id === id) {
+        if (saveTimer.current) {
+          clearTimeout(saveTimer.current)
+          saveTimer.current = null
+        }
+        pendingNote.current = null
+      } else {
+        await flushPending()
       }
-      pendingNote.current = null
       await storage.deleteNote(id)
       const list = await loadNoteList()
       if (activeNote?.id === id) {
@@ -208,8 +230,21 @@ export function useNotes() {
         writeNoteIdToUrl(next?.id ?? null, false)
       }
     },
-    [activeNote, loadNoteList],
+    [activeNote, loadNoteList, flushPending],
   )
+
+  // Pinning keeps a note at the top of the list. It's stored in the note's file itself
+  // (data-htmlr-pinned), so it travels with the .html like everything else. Deliberately does
+  // not touch updatedAt — pinning isn't an edit, and shouldn't reshuffle the recency order.
+  const togglePin = useCallback(async (id: string) => {
+    await flushPending() // the note being pinned may itself have a pending edit — don't overwrite it with stale content
+    const note = await storage.readNote(id)
+    if (!note) return
+    const updated: Note = { ...note, pinned: !note.pinned }
+    await storage.writeNote(updated)
+    setActiveNote(current => (current && current.id === id ? updated : current))
+    await loadNoteList()
+  }, [flushPending, loadNoteList])
 
   // Opens the note's real saved file in a new tab. Flushes any pending edit first so the file
   // reflects the latest content — that flush may also resolve a pending rename, so the id it
@@ -259,6 +294,6 @@ export function useNotes() {
     status, folderName, noteList, activeNote, saveStatus, titleConflict,
     isUsingFolder: storage.isUsingFolder(),
     chooseDirectory, reconnect, continueWithoutFolder,
-    openNote, createNote, updateNote, deleteNote, openNoteFile, importNote,
+    openNote, createNote, updateNote, deleteNote, togglePin, openNoteFile, importNote,
   }
 }

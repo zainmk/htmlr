@@ -35,8 +35,9 @@ export function filenameFor(id: string): string {
 /** Renders a note as a self-contained HTML document — this is the exact format written to disk, so any note file is also a viewable page on its own. */
 export function renderNoteHtml(note: Note): string {
   const displayTitle = escapeHtml(note.title || 'Untitled')
+  const pinnedAttr = note.pinned ? ' data-htmlr-pinned="true"' : ''
   return `<!DOCTYPE html>
-<html lang="en" data-htmlr-title="${escapeHtml(note.title)}" data-htmlr-created="${note.createdAt}" data-htmlr-updated="${note.updatedAt}">
+<html lang="en" data-htmlr-title="${escapeHtml(note.title)}" data-htmlr-created="${note.createdAt}" data-htmlr-updated="${note.updatedAt}"${pinnedAttr}>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -71,5 +72,7 @@ export function parseNoteHtml(html: string, id: string): Note | null {
     .map(el => el.outerHTML)
     .join('')
 
-  return { id, title, content, createdAt, updatedAt }
+  const note: Note = { id, title, content, createdAt, updatedAt }
+  if (root.getAttribute('data-htmlr-pinned') === 'true') note.pinned = true
+  return note
 }

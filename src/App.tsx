@@ -19,7 +19,7 @@ export default function App() {
     status, folderName, isUsingFolder,
     noteList, activeNote, saveStatus, titleConflict,
     chooseDirectory, reconnect, continueWithoutFolder,
-    openNote, createNote, updateNote, deleteNote, openNoteFile, importNote,
+    openNote, createNote, updateNote, deleteNote, togglePin, openNoteFile, importNote,
   } = useNotes()
 
   const { canInstall, install } = usePwaInstall()
@@ -72,6 +72,7 @@ export default function App() {
         onOpen={openNote}
         onCreate={createNote}
         onDelete={deleteNote}
+        onTogglePin={togglePin}
         onChooseDirectory={chooseDirectory}
         onImport={importNote}
       />

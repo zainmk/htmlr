@@ -5,10 +5,8 @@ import { TextSelection } from '@tiptap/pm/state'
 import StarterKit from '@tiptap/starter-kit'
 import TaskList from '@tiptap/extension-task-list'
 import TaskItem from '@tiptap/extension-task-item'
-import Link from '@tiptap/extension-link'
 import Image from '@tiptap/extension-image'
 import TextAlign from '@tiptap/extension-text-align'
-import Underline from '@tiptap/extension-underline'
 import Highlight from '@tiptap/extension-highlight'
 import Placeholder from '@tiptap/extension-placeholder'
 import CharacterCount from '@tiptap/extension-character-count'
@@ -26,16 +24,19 @@ interface Props {
 }
 
 const extensions = [
-  StarterKit.configure({ heading: { levels: [1, 2, 3] } }),
+  // StarterKit already bundles Link and Underline — configuring them here (rather than importing
+  // them separately) avoids registering duplicate extensions.
+  StarterKit.configure({
+    heading: { levels: [1, 2, 3] },
+    link: {
+      openOnClick: false,
+      HTMLAttributes: { target: '_blank', rel: 'noopener noreferrer' },
+    },
+  }),
   TaskList,
   TaskItem.configure({ nested: true }),
-  Link.configure({
-    openOnClick: false,
-    HTMLAttributes: { target: '_blank', rel: 'noopener noreferrer' },
-  }),
   Image.configure({ allowBase64: true }),
   TextAlign.configure({ types: ['heading', 'paragraph'] }),
-  Underline,
   Highlight,
   Placeholder.configure({ placeholder: 'Start writing…' }),
   CharacterCount,
@@ -86,7 +87,6 @@ export function Editor({ note, saveStatus, titleConflict, sidebarCollapsed, onTi
   // Identifies a note across renames — unlike note.id (now the slugified title), this never
   // changes, so a successful rename doesn't get mistaken for switching to a different note.
   const lastNoteKey = useRef<string | null>(null)
-  const titleRef = useRef<HTMLInputElement>(null)
   const wasSidebarCollapsed = useRef(sidebarCollapsed)
 
   const editor = useEditor({
@@ -120,8 +120,7 @@ export function Editor({ note, saveStatus, titleConflict, sidebarCollapsed, onTi
   const wordCount = editor?.storage.characterCount?.words() ?? 0
   const charCount = editor?.storage.characterCount?.characters() ?? 0
 
-  const statusLabel =
-    saveStatus === 'saved' ? 'Saved' : saveStatus === 'saving' ? 'Saving…' : 'Unsaved changes'
+  const statusLabel = saveStatus === 'saved' ? 'Saved' : 'Unsaved changes'
 
   return (
     <div className="editor-pane">
@@ -129,7 +128,6 @@ export function Editor({ note, saveStatus, titleConflict, sidebarCollapsed, onTi
 
       <div className="editor-title-row">
         <input
-          ref={titleRef}
           className="editor-title"
           value={note.title}
           onChange={e => onTitleChange(e.target.value)}

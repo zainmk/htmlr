@@ -4,8 +4,9 @@ export interface Note {
   content: string
   createdAt: string
   updatedAt: string
+  pinned?: boolean
 }
 
 export type NoteMetadata = Omit<Note, 'content'>
 
-export type SaveStatus = 'saved' | 'saving' | 'unsaved'
+export type SaveStatus = 'saved' | 'unsaved'

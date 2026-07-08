@@ -155,8 +155,11 @@ export const storage = {
   async listNotes(): Promise<NoteMetadata[]> {
     const notes = await notesCache.getAll()
     return notes
-      .map(({ id, title, createdAt, updatedAt }) => ({ id, title, createdAt, updatedAt }))
-      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+      .map(({ id, title, createdAt, updatedAt, pinned }) => ({ id, title, createdAt, updatedAt, pinned }))
+      .sort((a, b) => {
+        if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1
+        return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+      })
   },
 
   async readNote(id: string): Promise<Note | null> {

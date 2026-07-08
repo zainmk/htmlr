@@ -186,13 +186,39 @@
   letter-spacing: 0.1px;
 }
 
-.note-item-delete {
+.note-item-pinned-badge {
+  flex-shrink: 0;
+  color: var(--text-faint);
+}
+
+.note-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.note-item-action {
   opacity: 0;
   transition: opacity 0.12s ease;
 }
 
-.note-item:hover .note-item-delete {
+.note-item:hover .note-item-action,
+.note-item:focus-within .note-item-action {
   opacity: 1;
+}
+
+/* Touch devices have no hover — keep the actions visible so they're reachable at all. */
+@media (hover: none) {
+  .note-item-action {
+    opacity: 1;
+  }
+}
+
+/* First click arms the delete; it stays visibly armed while waiting for the confirming click. */
+.note-item-delete--armed {
+  opacity: 1;
+  background: var(--danger-bg);
+  color: var(--danger);
 }
 
 /* ── Shared icon button ──────────────────────────── */
@@ -498,13 +524,6 @@
 
 .save-status--saved { color: var(--success); }
 .save-status--unsaved { color: var(--warning); }
-.save-status--saving { color: var(--text-faint); }
-.save-status--saving::before { animation: pulse-dot 1s ease-in-out infinite; }
-
-@keyframes pulse-dot {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.3; }
-}
 
 /* ── Empty state ─────────────────────────────────── */
 

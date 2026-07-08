@@ -1,5 +1,5 @@
-import { useEffect, useRef } from 'react'
-import { Plus, FileText, Trash2, FolderOpen, HardDrive, FileUp } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Plus, FileText, Trash2, FolderOpen, HardDrive, FileUp, Pin, PinOff } from 'lucide-react'
 import type { NoteMetadata } from '../types'
 
 interface Props {
@@ -11,6 +11,7 @@ interface Props {
   onOpen: (id: string) => void
   onCreate: () => void
   onDelete: (id: string) => void
+  onTogglePin: (id: string) => void
   onChooseDirectory: () => void
   onImport: (file: File) => void
 }
@@ -29,10 +30,21 @@ function formatDate(iso: string): string {
 // zero-width (not yet reliably focusable) element in some browsers.
 const SIDEBAR_TRANSITION_MS = 200
 
-export function Sidebar({ notes, activeId, folderName, isUsingFolder, collapsed, onOpen, onCreate, onDelete, onChooseDirectory, onImport }: Props) {
+// How long an armed delete button waits for the confirming second click before disarming.
+const DELETE_CONFIRM_TIMEOUT_MS = 2500
+
+export function Sidebar({ notes, activeId, folderName, isUsingFolder, collapsed, onOpen, onCreate, onDelete, onTogglePin, onChooseDirectory, onImport }: Props) {
   const itemRefs = useRef<(HTMLDivElement | null)[]>([])
   const wasCollapsed = useRef(collapsed)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Two-step delete: first click arms the button, second click actually deletes.
+  const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null)
+  useEffect(() => {
+    if (confirmingDelete === null) return
+    const timer = setTimeout(() => setConfirmingDelete(null), DELETE_CONFIRM_TIMEOUT_MS)
+    return () => clearTimeout(timer)
+  }, [confirmingDelete])
 
   // Move focus into the note list whenever the sidebar opens, so arrow keys work immediately.
   useEffect(() => {
@@ -110,6 +122,7 @@ export function Sidebar({ notes, activeId, folderName, isUsingFolder, collapsed,
             ref={el => { itemRefs.current[index] = el }}
             className={`note-item ${note.id === activeId ? 'note-item--active' : ''}`}
             onClick={() => onOpen(note.id)}
+            onMouseLeave={() => { if (confirmingDelete === note.id) setConfirmingDelete(null) }}
             role="option"
             aria-selected={note.id === activeId}
             tabIndex={note.id === activeId ? 0 : -1}
@@ -117,19 +130,37 @@ export function Sidebar({ notes, activeId, folderName, isUsingFolder, collapsed,
             <div className="note-item-main">
               <FileText size={14} className="note-item-icon" />
               <span className="note-item-title">{note.title || 'Untitled'}</span>
+              {note.pinned && <Pin size={11} className="note-item-pinned-badge" aria-label="Pinned" />}
             </div>
             <div className="note-item-meta">
               <span className="note-item-date">{formatDate(note.updatedAt)}</span>
-              <button
-                className="icon-btn icon-btn--danger note-item-delete"
-                onClick={e => {
-                  e.stopPropagation()
-                  if (confirm(`Delete "${note.title || 'Untitled'}"?`)) onDelete(note.id)
-                }}
-                title="Delete note"
-              >
-                <Trash2 size={13} />
-              </button>
+              <span className="note-item-actions">
+                <button
+                  className="icon-btn note-item-action"
+                  onClick={e => {
+                    e.stopPropagation()
+                    onTogglePin(note.id)
+                  }}
+                  title={note.pinned ? 'Unpin' : 'Pin to top'}
+                >
+                  {note.pinned ? <PinOff size={13} /> : <Pin size={13} />}
+                </button>
+                <button
+                  className={`icon-btn icon-btn--danger note-item-action ${confirmingDelete === note.id ? 'note-item-delete--armed' : ''}`}
+                  onClick={e => {
+                    e.stopPropagation()
+                    if (confirmingDelete === note.id) {
+                      setConfirmingDelete(null)
+                      onDelete(note.id)
+                    } else {
+                      setConfirmingDelete(note.id)
+                    }
+                  }}
+                  title={confirmingDelete === note.id ? 'Click again to delete' : 'Delete note'}
+                >
+                  <Trash2 size={13} />
+                </button>
+              </span>
             </div>
           </div>
         ))}
