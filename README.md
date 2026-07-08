@@ -1,4 +1,4 @@
-# htmlr
+# <img width="36" height="36" src="https://github.com/user-attachments/assets/708ac722-64a4-44ad-9ad8-6aaede2da1db" /> [htmlr](https://htmlr.vercel.app/?note=new-note)
 
 A WYSIWYG .html note editor that stores everything you write as plain, self-contained HTML files — on your own device, not on a server. No account, no cloud, no subscription.
 
