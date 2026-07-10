@@ -5,6 +5,8 @@ export interface Note {
   createdAt: string
   updatedAt: string
   pinned?: boolean
+  /** Manual sort position within the pinned group (smaller = higher). Absent for unpinned notes. */
+  pinnedOrder?: number
 }
 
 export type NoteMetadata = Omit<Note, 'content'>

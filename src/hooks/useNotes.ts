@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { storage, type StorageStatus } from '../storage'
-import { renderNoteHtml, parseNoteHtml, filenameFor, slugify } from '../storage/noteFile'
+import { renderNoteHtml, filenameFor, slugify } from '../storage/noteFile'
 import type { Note, NoteMetadata, SaveStatus } from '../types'
 
 export type AppStatus = 'checking' | StorageStatus
@@ -233,16 +233,39 @@ export function useNotes() {
     [activeNote, loadNoteList, flushPending],
   )
 
-  // Pinning keeps a note at the top of the list. It's stored in the note's file itself
-  // (data-htmlr-pinned), so it travels with the .html like everything else. Deliberately does
-  // not touch updatedAt — pinning isn't an edit, and shouldn't reshuffle the recency order.
+  // Pinning keeps a note at the top of the list. Pin state + manual order live in the note's file
+  // itself (data-htmlr-pinned / data-htmlr-pin-order), so they travel with the .html. Deliberately
+  // does not touch updatedAt — pinning/reordering isn't an edit and shouldn't reshuffle recency.
   const togglePin = useCallback(async (id: string) => {
     await flushPending() // the note being pinned may itself have a pending edit — don't overwrite it with stale content
     const note = await storage.readNote(id)
     if (!note) return
-    const updated: Note = { ...note, pinned: !note.pinned }
+    const updated: Note = note.pinned
+      ? { ...note, pinned: false, pinnedOrder: undefined }
+      // Newly pinned notes go to the top of the pinned group: a smaller pinnedOrder sorts higher,
+      // and -Date.now() is smaller than any order a manual reorder assigns (0, 1, 2, …).
+      : { ...note, pinned: true, pinnedOrder: -Date.now() }
     await storage.writeNote(updated)
     setActiveNote(current => (current && current.id === id ? updated : current))
+    await loadNoteList()
+  }, [flushPending, loadNoteList])
+
+  // Applies a new manual order to the pinned notes (drag-and-drop). Renumbers them 0,1,2,… in the
+  // given order and writes each changed file. Unpinned notes are untouched — they stay sorted by
+  // last-modified. Keeps updatedAt intact so reordering never counts as an edit.
+  const reorderPinned = useCallback(async (orderedIds: string[]) => {
+    await flushPending()
+    for (let i = 0; i < orderedIds.length; i++) {
+      const note = await storage.readNote(orderedIds[i])
+      if (note && note.pinnedOrder !== i) {
+        await storage.writeNote({ ...note, pinnedOrder: i })
+      }
+    }
+    // Keep the in-memory active note's order in sync, so a later edit doesn't write back a stale one.
+    setActiveNote(current => {
+      const idx = current ? orderedIds.indexOf(current.id) : -1
+      return idx === -1 ? current : { ...current!, pinnedOrder: idx }
+    })
     await loadNoteList()
   }, [flushPending, loadNoteList])
 
@@ -266,34 +289,10 @@ export function useNotes() {
     URL.revokeObjectURL(url)
   }, [flushPending])
 
-  // Imports an .html file (e.g. picked via a file input, which works on every browser — including
-  // iOS Safari, which has no folder access at all) as a new note. Its title comes from the file
-  // itself; if that title's slug collides with an existing note, the import still succeeds under
-  // a disambiguated id rather than blocking, since there's no in-progress edit to warn about here.
-  const importNote = useCallback(async (file: File) => {
-    const html = await file.text()
-    const fallbackId = slugify(file.name.replace(/\.html?$/i, ''))
-    const parsed = parseNoteHtml(html, fallbackId)
-    if (!parsed) {
-      alert("That file doesn't look like a note htmlr can read.")
-      return
-    }
-
-    await flushPending()
-    const id = await uniqueId(slugify(parsed.title) || fallbackId)
-    const note: Note = { ...parsed, id }
-    await storage.writeNote(note)
-    await loadNoteList()
-    setActiveNote(note)
-    setSaveStatus('saved')
-    setTitleConflict(false)
-    writeNoteIdToUrl(note.id, true)
-  }, [flushPending, loadNoteList])
-
   return {
     status, folderName, noteList, activeNote, saveStatus, titleConflict,
     isUsingFolder: storage.isUsingFolder(),
     chooseDirectory, reconnect, continueWithoutFolder,
-    openNote, createNote, updateNote, deleteNote, togglePin, openNoteFile, importNote,
+    openNote, createNote, updateNote, deleteNote, togglePin, reorderPinned, openNoteFile,
   }
 }

@@ -36,8 +36,9 @@ export function filenameFor(id: string): string {
 export function renderNoteHtml(note: Note): string {
   const displayTitle = escapeHtml(note.title || 'Untitled')
   const pinnedAttr = note.pinned ? ' data-htmlr-pinned="true"' : ''
+  const pinOrderAttr = note.pinned && note.pinnedOrder != null ? ` data-htmlr-pin-order="${note.pinnedOrder}"` : ''
   return `<!DOCTYPE html>
-<html lang="en" data-htmlr-title="${escapeHtml(note.title)}" data-htmlr-created="${note.createdAt}" data-htmlr-updated="${note.updatedAt}"${pinnedAttr}>
+<html lang="en" data-htmlr-title="${escapeHtml(note.title)}" data-htmlr-created="${note.createdAt}" data-htmlr-updated="${note.updatedAt}"${pinnedAttr}${pinOrderAttr}>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -73,6 +74,10 @@ export function parseNoteHtml(html: string, id: string): Note | null {
     .join('')
 
   const note: Note = { id, title, content, createdAt, updatedAt }
-  if (root.getAttribute('data-htmlr-pinned') === 'true') note.pinned = true
+  if (root.getAttribute('data-htmlr-pinned') === 'true') {
+    note.pinned = true
+    const order = root.getAttribute('data-htmlr-pin-order')
+    if (order != null && order !== '') note.pinnedOrder = Number(order)
+  }
   return note
 }

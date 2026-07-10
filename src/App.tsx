@@ -19,7 +19,7 @@ export default function App() {
     status, folderName, isUsingFolder,
     noteList, activeNote, saveStatus, titleConflict,
     chooseDirectory, reconnect, continueWithoutFolder,
-    openNote, createNote, updateNote, deleteNote, togglePin, openNoteFile, importNote,
+    openNote, createNote, updateNote, deleteNote, togglePin, reorderPinned, openNoteFile,
   } = useNotes()
 
   const { canInstall, install } = usePwaInstall()
@@ -47,6 +47,16 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [toggleSidebar])
 
+  // Resolving storage (reading IndexedDB, reconciling the folder) — keep the same spinner the
+  // inline loader in index.html was already showing, so there's no blank flash across the handoff.
+  if (status === 'checking') {
+    return (
+      <div className="app-loading">
+        <div className="app-loading-spinner" />
+      </div>
+    )
+  }
+
   if (status !== 'ready' && status !== 'fallback') {
     return (
       <Welcome
@@ -73,8 +83,8 @@ export default function App() {
         onCreate={createNote}
         onDelete={deleteNote}
         onTogglePin={togglePin}
+        onReorderPinned={reorderPinned}
         onChooseDirectory={chooseDirectory}
-        onImport={importNote}
       />
 
       <button

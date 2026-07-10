@@ -15,7 +15,7 @@ const BASE_FEATURES = [
   {
     icon: FileText,
     title: 'Real files, not a database',
-    body: 'Every note is saved as its own self-contained .html file — readable in any browser, greppable, backed up, moved with a copy-paste, or imported right back in.',
+    body: 'Every note is saved as its own self-contained .html file — readable in any browser, greppable, backed up, or moved with a simple copy-paste.',
   },
   {
     icon: Lock,
@@ -35,14 +35,10 @@ const SYNC_FEATURE = {
 const MOVE_FEATURE = {
   icon: FolderUp,
   title: 'Move notes between devices',
-  body: 'No folder access in this browser, but notes still travel: import an .html file from another device via the sidebar, or download any note as a real file from the toolbar.',
+  body: 'No folder access in this browser, but notes still travel: download any note as a real .html file from the toolbar and move it wherever you like.',
 }
 
 export function Welcome({ status, folderName, canInstall, onChooseDirectory, onReconnect, onContinueWithoutFolder, onInstall }: Props) {
-  if (status === 'checking') {
-    return <div className="welcome" />
-  }
-
   const features = [...BASE_FEATURES, status === 'unsupported' ? MOVE_FEATURE : SYNC_FEATURE]
 
   return (
@@ -102,8 +98,8 @@ export function Welcome({ status, folderName, canInstall, onChooseDirectory, onR
                 </div>
                 <p className="welcome-note">
                   On-device folder storage needs a Chromium-based browser (Chrome, Edge). You can still fully write
-                  and edit notes here — they're kept in this browser's storage, and you can import notes from
-                  another device or download a copy any time.
+                  and edit notes here — they're kept in this browser's storage, and you can download any note as a
+                  real .html file any time.
                 </p>
               </>
             ) : (

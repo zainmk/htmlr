@@ -1,3 +1,27 @@
+/* ── Loading (mirrors the inline #initial-loader in index.html) ── */
+
+.app-loading {
+  width: 100%;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+}
+
+.app-loading-spinner {
+  width: 28px;
+  height: 28px;
+  border: 2px solid rgba(255, 255, 255, 0.12);
+  border-top-color: rgba(255, 255, 255, 0.55);
+  border-radius: 50%;
+  animation: app-loading-spin 0.7s linear infinite;
+}
+
+@keyframes app-loading-spin {
+  to { transform: rotate(360deg); }
+}
+
 /* ── Layout ─────────────────────────────────────── */
 
 .app {
@@ -109,6 +133,14 @@
   line-height: 1.6;
 }
 
+/* Separates the pinned group from the rest of the notes. */
+.note-list-divider {
+  height: 1px;
+  margin: 6px 10px;
+  background: var(--border);
+  flex-shrink: 0;
+}
+
 .note-item {
   position: relative;
   display: flex;
@@ -146,6 +178,27 @@
 .note-item--active::before {
   opacity: 1;
   transform: scaleY(1);
+}
+
+/* Pinned notes are drag-reorderable. */
+.note-item[draggable='true'] {
+  cursor: grab;
+}
+
+.note-item--dragging {
+  opacity: 0.4;
+}
+
+/* Insertion indicator: a line at the top edge of the note being dragged over. */
+.note-item--drag-over::after {
+  content: '';
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: -2px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent-hover);
 }
 
 .note-item-main {
@@ -202,20 +255,18 @@
   transition: opacity 0.12s ease;
 }
 
-.note-item:hover .note-item-action,
+/* Only the active (open) note shows its pin/trash — plus whichever item currently has keyboard
+   focus, so arrow-key navigation can still reach the actions. This is also touch-friendly: on a
+   phone, tapping a note makes it active, which reveals its actions. */
+.note-item--active .note-item-action,
 .note-item:focus-within .note-item-action {
   opacity: 1;
 }
 
-/* Touch devices have no hover — keep the actions visible so they're reachable at all. */
-@media (hover: none) {
-  .note-item-action {
-    opacity: 1;
-  }
-}
-
-/* First click arms the delete; it stays visibly armed while waiting for the confirming click. */
-.note-item-delete--armed {
+/* First click arms the delete; it stays visibly armed (red) while waiting for the confirming
+   click — even with the mouse away. Two classes so it outranks the later `.icon-btn` base rule,
+   which otherwise resets color/background at equal specificity. */
+.note-item-action.note-item-delete--armed {
   opacity: 1;
   background: var(--danger-bg);
   color: var(--danger);

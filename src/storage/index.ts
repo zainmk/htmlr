@@ -154,11 +154,21 @@ export const storage = {
 
   async listNotes(): Promise<NoteMetadata[]> {
     const notes = await notesCache.getAll()
+    const byRecency = (a: NoteMetadata, b: NoteMetadata) =>
+      new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
     return notes
-      .map(({ id, title, createdAt, updatedAt, pinned }) => ({ id, title, createdAt, updatedAt, pinned }))
+      .map(({ id, title, createdAt, updatedAt, pinned, pinnedOrder }) => ({ id, title, createdAt, updatedAt, pinned, pinnedOrder }))
       .sort((a, b) => {
+        // Pinned notes first, in their manual order (pinnedOrder ascending). Everything else —
+        // including pinned notes that predate manual ordering — falls back to last-modified.
         if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1
-        return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+        if (a.pinned && b.pinned) {
+          const ao = a.pinnedOrder, bo = b.pinnedOrder
+          if (ao != null && bo != null && ao !== bo) return ao - bo
+          if (ao != null && bo == null) return -1
+          if (ao == null && bo != null) return 1
+        }
+        return byRecency(a, b)
       })
   },
 

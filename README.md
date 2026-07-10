@@ -12,10 +12,10 @@ Most note apps hold your notes hostage in a proprietary database or a company's 
 
 - **WYSIWYG editing** — headings, lists, task lists, code blocks, blockquotes, links, text alignment, highlighting
 - **Paste images directly** — embedded into the note as data URLs, so each file stays fully self-contained
-- **Pin notes** — keep important notes at the top of the list (stored in the note's file itself, so pins travel with it)
-- **Import / export** — pull any `.html` note file in via the sidebar (works on every browser, including iOS Safari), or open/download the real saved file from the toolbar
+- **Pin & reorder** — pin important notes to the top and drag to arrange them; the rest stay sorted by last-modified (pin state and order live in the note's file, so they travel with it)
+- **Export** — open or download the real saved `.html` file from the toolbar (works on every browser, including iOS Safari)
 - **Deep links** — `?note=<name>` in the URL opens that note directly; browser back/forward move between notes
-- **Keyboard-friendly** — `Esc` toggles the sidebar, arrow keys navigate the note list, `Enter` opens
+- **Keyboard-friendly** — `Esc` toggles the sidebar; with it open, arrow keys navigate the list, `Enter` opens, `n` creates a note
 - **Installable PWA** — install from the welcome screen (Chrome/Edge) and it runs in its own window, fully offline
 
 
@@ -29,7 +29,7 @@ htmlr uses a two-layer storage model:
 
 **Conflict handling:** when the same note differs between the cache and the folder, the version with the newer `updatedAt` wins. This matters when the folder is a network mount (NAS, a cloud-sync client's drive) that was briefly unreachable — an edit made during the outage is kept and written back to the folder once it's reachable again, instead of being silently overwritten by the stale on-disk copy.
 
-**Browsers without File System Access support** (Firefox, Safari — including all of iOS) fall back to IndexedDB-only storage, so the app still works: full editing, import, and download-as-file remain available; you just don't get the live on-disk folder until you switch to a Chromium-based browser.
+**Browsers without File System Access support** (Firefox, Safari — including all of iOS) fall back to IndexedDB-only storage, so the app still works: full editing and download-as-file remain available; you just don't get the live on-disk folder until you switch to a Chromium-based browser.
 
 **Multi-device access** works by pointing the folder picker at a mapped network share (e.g. a Synology/QNAP/TrueNAS box over SMB) or a locally-mounted cloud-sync folder (Google Drive for desktop in Mirror mode, Dropbox, OneDrive) — no sync service integration needed, since it's just files on a drive.
 
@@ -39,7 +39,7 @@ Because permission to a folder isn't guaranteed to persist across browser restar
 
 The app is an installable PWA: a service worker (via `vite-plugin-pwa`) precaches the app shell, so once installed it launches and works with zero connectivity. Note data never needed the network in the first place — folder writes and the IndexedDB cache are both local — so offline the only thing that changes is nothing.
 
-On iOS, use Share → Add to Home Screen: the app runs standalone (no browser chrome) and gets its own more-durable storage bucket. Note that iOS can never connect a folder (no File System Access API in WebKit), so it always runs in IndexedDB fallback mode — use import/download to move notes between an iPhone and a folder-connected desktop.
+On iOS, use Share → Add to Home Screen: the app runs standalone (no browser chrome) and gets its own more-durable storage bucket. Note that iOS can never connect a folder (no File System Access API in WebKit), so it always runs in IndexedDB fallback mode — download a note as a file to move it off the device.
 
 ## Stack
 
@@ -58,18 +58,18 @@ No backend, no database server, no external services.
 ```
 src/
   components/
-    Sidebar.tsx          note list, pin/delete actions, import, folder/storage status
+    Sidebar.tsx          note list, pin/reorder/delete actions, folder/storage status
     Editor.tsx           TipTap editor setup, image paste handling
     EditorToolbar.tsx    formatting toolbar, open-saved-file action
     Welcome.tsx          onboarding screen / folder connection / permission recovery / PWA install
   hooks/
-    useNotes.ts          note CRUD, save debouncing, URL sync, pinning, import/export
+    useNotes.ts          note CRUD, save debouncing, URL sync, pinning/reorder, export
     usePwaInstall.ts     captures the browser install prompt for the welcome screen
   storage/
     index.ts             orchestrates cache + folder sync (timestamp-based reconcile)
     fs.ts                File System Access API wrapper (pick/read/write/permissions)
     db.ts                IndexedDB wrapper (note cache + key-value store)
-    noteFile.ts          note <-> HTML file serialization, shared by storage and import/export
+    noteFile.ts          note <-> HTML file serialization, shared by storage and export
   types.ts               Note / NoteMetadata / SaveStatus types
 ```
 
