@@ -34,6 +34,9 @@ export function Sidebar({ notes, activeId, folderName, isUsingFolder, collapsed,
   const itemRefs = useRef<(HTMLDivElement | null)[]>([])
   const wasCollapsed = useRef(collapsed)
   const armedDeleteRef = useRef<HTMLButtonElement | null>(null)
+  // Set to the deleted note's index by a keyboard-driven delete, consumed once the list re-renders
+  // to move focus back into it (see the effect below).
+  const refocusAfterDeleteRef = useRef<number | null>(null)
 
   // Drag-to-reorder, pinned notes only. Unpinned notes stay sorted by last-modified and aren't
   // draggable. `draggingId` is the note being dragged; `dragOverId` is the pinned note it's
@@ -68,6 +71,18 @@ export function Sidebar({ notes, activeId, folderName, isUsingFolder, collapsed,
     document.addEventListener('pointerdown', onPointerDown)
     return () => document.removeEventListener('pointerdown', onPointerDown)
   }, [confirmingDelete])
+
+  // After a keyboard-initiated delete, the trash button that had focus unmounts with its note,
+  // dropping focus to <body> and killing arrow-key navigation. Once the list has re-rendered, move
+  // focus to the note that slid into the deleted slot (or the new last note) so the user can keep
+  // navigating up/down without reaching for the mouse.
+  useEffect(() => {
+    const deletedIndex = refocusAfterDeleteRef.current
+    if (deletedIndex === null) return
+    refocusAfterDeleteRef.current = null
+    if (notes.length === 0) return
+    itemRefs.current[Math.min(deletedIndex, notes.length - 1)]?.focus()
+  }, [notes])
 
   // Move focus into the note list whenever the sidebar opens, so arrow keys work immediately.
   useEffect(() => {
@@ -199,6 +214,10 @@ export function Sidebar({ notes, activeId, folderName, isUsingFolder, collapsed,
                         e.stopPropagation()
                         if (confirmingDelete === note.id) {
                           setConfirmingDelete(null)
+                          // detail === 0 means the button was activated by keyboard (Enter/Space),
+                          // not a mouse click — only then pull focus back into the list, so a mouse
+                          // user's focus isn't yanked around.
+                          if (e.detail === 0) refocusAfterDeleteRef.current = index
                           onDelete(note.id)
                         } else {
                           setConfirmingDelete(note.id)

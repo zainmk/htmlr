@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react'
-import { PanelLeftOpen, PanelLeftClose } from 'lucide-react'
+import { PanelLeftOpen, PanelLeftClose, FolderOpen } from 'lucide-react'
 import { useNotes } from './hooks/useNotes'
 import { usePwaInstall } from './hooks/usePwaInstall'
 import { Sidebar } from './components/Sidebar'
@@ -53,6 +53,31 @@ export default function App() {
     return (
       <div className="app-loading">
         <div className="app-loading-spinner" />
+      </div>
+    )
+  }
+
+  // The connected folder still had permission but has since been deleted/moved/renamed on disk, so
+  // there's nothing left to load. Keep the spinner up (the app is, from the user's view, still
+  // trying to open their notes) and offer a way out by pointing it at a folder that exists.
+  if (status === 'missing-folder') {
+    return (
+      <div className="app-loading app-loading--recover">
+        <div className="app-loading-spinner" />
+        <div className="app-loading-prompt">
+          <button className="btn-primary" onClick={chooseDirectory}>
+            <FolderOpen size={15} />
+            Change folder
+          </button>
+          <p className="app-loading-prompt-text">
+            {folderName ? (
+              <><span className="app-loading-folder-name">{folderName}</span> couldn't be found.</>
+            ) : (
+              "Your notes folder couldn't be found."
+            )}{' '}
+            It may have been moved, renamed, or deleted.
+          </p>
+        </div>
       </div>
     )
   }

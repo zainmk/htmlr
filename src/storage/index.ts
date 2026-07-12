@@ -11,12 +11,19 @@ import {
 } from './fs'
 import { slugify } from './noteFile'
 
-export type StorageStatus = 'unsupported' | 'needs-setup' | 'needs-permission' | 'ready' | 'fallback'
+export type StorageStatus = 'unsupported' | 'needs-setup' | 'needs-permission' | 'missing-folder' | 'ready' | 'fallback'
 
 const DIR_HANDLE_KEY = 'directoryHandle'
 const FALLBACK_KEY = 'fallbackMode'
 
 let dirHandle: FileSystemDirectoryHandle | null = null
+
+/** A folder we still hold permission for, but whose directory has since been deleted, moved, or
+ *  renamed on disk — reading it throws NotFoundError. Distinct from a permission revocation, where
+ *  the folder is still there but the browser wants the user to re-confirm access. */
+function isFolderMissingError(err: unknown): boolean {
+  return err instanceof DOMException && err.name === 'NotFoundError'
+}
 
 /** True if no other note in the batch already owns (or has already claimed) this id. */
 function idIsFree(id: string, self: Note, all: Note[], claimed: Set<string>): boolean {
@@ -118,7 +125,15 @@ export const storage = {
       return 'needs-permission'
     }
     dirHandle = saved
-    await reconcileFromDisk()
+    // Permission is granted, but the folder itself may be gone (deleted/moved/renamed since we last
+    // saw it). Reading it then throws NotFoundError — surface that as its own recoverable state
+    // instead of letting the rejection escape and hang the app on the loading spinner forever.
+    try {
+      await reconcileFromDisk()
+    } catch (err) {
+      if (isFolderMissingError(err)) return 'missing-folder'
+      throw err
+    }
     return 'ready'
   },
 
@@ -132,11 +147,18 @@ export const storage = {
     return true
   },
 
-  /** Re-requests permission on the previously connected folder (requires a user gesture). */
+  /** Re-requests permission on the previously connected folder (requires a user gesture). Returns
+   *  false if permission is refused or the folder is no longer on disk — the caller stays on the
+   *  reconnect screen, where "Choose a different folder" remains available as the way out. */
   async reconnect(): Promise<boolean> {
     if (!dirHandle) return false
     if (!(await verifyPermission(dirHandle, true))) return false
-    await reconcileFromDisk()
+    try {
+      await reconcileFromDisk()
+    } catch (err) {
+      if (isFolderMissingError(err)) return false
+      throw err
+    }
     return true
   },
 

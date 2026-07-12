@@ -22,6 +22,34 @@
   to { transform: rotate(360deg); }
 }
 
+/* Missing-folder recovery: spinner stays, with a prompt stacked beneath it. */
+.app-loading--recover {
+  flex-direction: column;
+  gap: 26px;
+}
+
+.app-loading-prompt {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  max-width: 340px;
+  padding: 0 24px;
+  text-align: center;
+}
+
+.app-loading-prompt-text {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.65;
+  color: var(--text-muted);
+}
+
+.app-loading-folder-name {
+  color: var(--text);
+  font-weight: 600;
+}
+
 /* ── Layout ─────────────────────────────────────── */
 
 .app {
