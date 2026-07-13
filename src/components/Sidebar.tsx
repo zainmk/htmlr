@@ -32,6 +32,7 @@ const SIDEBAR_TRANSITION_MS = 200
 
 export function Sidebar({ notes, activeId, folderName, isUsingFolder, collapsed, onOpen, onCreate, onDelete, onTogglePin, onReorderPinned, onChooseDirectory }: Props) {
   const itemRefs = useRef<(HTMLDivElement | null)[]>([])
+  const createBtnRef = useRef<HTMLButtonElement | null>(null)
   const wasCollapsed = useRef(collapsed)
   const armedDeleteRef = useRef<HTMLButtonElement | null>(null)
   // Set to the deleted note's index by a keyboard-driven delete, consumed once the list re-renders
@@ -91,7 +92,11 @@ export function Sidebar({ notes, activeId, folderName, isUsingFolder, collapsed,
     if (!justOpened) return
 
     const targetIndex = Math.max(0, notes.findIndex(n => n.id === activeId))
-    const timer = setTimeout(() => itemRefs.current[targetIndex]?.focus(), SIDEBAR_TRANSITION_MS)
+    const timer = setTimeout(() => {
+      // With no notes there's nothing in the list to land on, so focus the New-note button instead.
+      if (notes.length === 0) createBtnRef.current?.focus()
+      else itemRefs.current[targetIndex]?.focus()
+    }, SIDEBAR_TRANSITION_MS)
     return () => clearTimeout(timer)
   }, [collapsed, notes, activeId])
 
@@ -99,12 +104,16 @@ export function Sidebar({ notes, activeId, folderName, isUsingFolder, collapsed,
     const currentIndex = itemRefs.current.findIndex(el => el === document.activeElement)
     switch (e.key) {
       case 'ArrowDown':
+        // The New-note button sits above the list as the top of the loop: past the last note,
+        // ArrowDown wraps up to it rather than jumping straight back to the first note.
         e.preventDefault()
-        itemRefs.current[currentIndex < notes.length - 1 ? currentIndex + 1 : 0]?.focus()
+        if (currentIndex < notes.length - 1) itemRefs.current[currentIndex + 1]?.focus()
+        else createBtnRef.current?.focus()
         break
       case 'ArrowUp':
         e.preventDefault()
-        itemRefs.current[currentIndex > 0 ? currentIndex - 1 : notes.length - 1]?.focus()
+        if (currentIndex > 0) itemRefs.current[currentIndex - 1]?.focus()
+        else createBtnRef.current?.focus()
         break
       case 'Home':
         e.preventDefault()
@@ -133,6 +142,18 @@ export function Sidebar({ notes, activeId, folderName, isUsingFolder, collapsed,
     }
   }
 
+  // Arrow keys move between the New-note button and the list, so it's part of the same loop: down
+  // enters at the first note, up wraps to the last. (Enter/Space still create, via the button.)
+  const handleCreateKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      itemRefs.current[0]?.focus()
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      itemRefs.current[notes.length - 1]?.focus()
+    }
+  }
+
   return (
     <aside className={`sidebar ${collapsed ? 'sidebar--collapsed' : ''}`}>
       <div className="sidebar-header">
@@ -140,7 +161,7 @@ export function Sidebar({ notes, activeId, folderName, isUsingFolder, collapsed,
           <img src="/logo.svg" alt="htmlr" className="sidebar-logo" />
         </div>
         <div className="sidebar-header-actions">
-          <button className="icon-btn" onClick={onCreate} title="New note">
+          <button className="icon-btn" ref={createBtnRef} onClick={onCreate} onKeyDown={handleCreateKeyDown} title="New note">
             <Plus size={18} />
           </button>
         </div>

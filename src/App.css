@@ -368,11 +368,12 @@
 
 /* ── Toolbar ─────────────────────────────────────── */
 
-.toolbar {
+/* The shell is the glass panel. It holds the always-on quick toolbar and, when hovered/focused,
+   grows to reveal the full master toolbar above a divider line. */
+.toolbar-shell {
   display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 1px;
+  flex-direction: column;
+  gap: 6px;
   margin: 20px 24px 0;
   padding: 6px;
   background: var(--bg-toolbar);
@@ -383,6 +384,74 @@
   position: sticky;
   top: 0;
   z-index: 10;
+}
+
+.toolbar-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1px;
+}
+
+/* The master toolbar and the divider fade/slide in as the shell expands. */
+.toolbar-row--master,
+.toolbar-quick-divider {
+  animation: toolbar-expand 0.14s ease;
+}
+
+@keyframes toolbar-expand {
+  from { opacity: 0; transform: translateY(-3px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* The "white horizontal line" separating the master toolbar (above) from the quick toolbar (below).
+   A touch brighter than the in-row group dividers so it reads as the boundary between the two. */
+.toolbar-quick-divider {
+  height: 1px;
+  margin: 1px 2px;
+  background: rgba(255, 255, 255, 0.18);
+  flex-shrink: 0;
+}
+
+.toolbar-row--quick {
+  min-height: 28px;
+  padding: 0 2px;
+  border-radius: var(--radius-sm);
+  transition: background 0.12s ease, box-shadow 0.12s ease;
+}
+
+/* Highlight the quick row while a button is being dragged over it. */
+.toolbar-row--drop {
+  background: var(--accent-bg);
+  box-shadow: inset 0 0 0 1px var(--accent-dim);
+}
+
+.toolbar-quick-hint {
+  font-size: 12px;
+  color: var(--text-faint);
+  padding: 5px 6px;
+  user-select: none;
+  pointer-events: none;
+}
+
+/* Vertical bar shown at the gap where a dragged button will land when reordering the quick row. */
+.toolbar-quick-insert {
+  width: 2px;
+  align-self: stretch;
+  min-height: 22px;
+  margin: 0 1px;
+  border-radius: 2px;
+  background: var(--accent-hover);
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
+.toolbar-btn[draggable='true'] {
+  cursor: grab;
+}
+
+.toolbar-btn[draggable='true']:active {
+  cursor: grabbing;
 }
 
 .toolbar-btn {
