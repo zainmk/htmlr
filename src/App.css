@@ -417,13 +417,106 @@
   min-height: 28px;
   padding: 0 2px;
   border-radius: var(--radius-sm);
-  transition: background 0.12s ease, box-shadow 0.12s ease;
+  transition: background 0.12s ease, box-shadow 0.12s ease, padding 0.12s ease;
+}
+
+/* Reserve room on the right for the reset button while the toolbar is engaged. */
+.toolbar-row--reset-gap {
+  padding-right: 30px;
 }
 
 /* Highlight the quick row while a button is being dragged over it. */
 .toolbar-row--drop {
   background: var(--accent-bg);
   box-shadow: inset 0 0 0 1px var(--accent-dim);
+}
+
+/* ── Reset-toolbar button (top-right, hover to reveal, hold to arm) ── */
+
+.toolbar-reset-btn {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  z-index: 15;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--bg-toolbar);
+  color: var(--text-faint);
+  overflow: hidden;
+  cursor: pointer;
+  user-select: none;
+  touch-action: none;
+  animation: toolbar-expand 0.12s ease;
+  transition: color 0.12s ease, border-color 0.12s ease;
+}
+
+/* The "press and hold" fill: climbs bottom-to-top over the hold duration while held; on release the
+   holding class drops and it retracts quickly. */
+.toolbar-reset-btn::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--danger-bg);
+  transform: scaleY(0);
+  transform-origin: bottom;
+  transition: transform 0.15s ease;
+}
+
+.toolbar-reset-btn:hover {
+  color: var(--text-muted);
+  border-color: var(--border);
+}
+
+.toolbar-reset-btn svg {
+  position: relative;
+  z-index: 1;
+}
+
+/* While held, the fill climbs over the hold window and the button reads as a live, destructive action. */
+.toolbar-reset-btn--holding,
+.toolbar-reset-btn--holding:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.toolbar-reset-btn--holding::before {
+  transform: scaleY(1);
+  transition: transform 0.7s linear;
+}
+
+/* Transient "Toolbar reset" confirmation, top-right where the reset button lives. */
+.toolbar-reset-toast {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  z-index: 16;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 9px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(74, 222, 128, 0.4);
+  background: rgba(74, 222, 128, 0.14);
+  color: var(--success);
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+  animation: toolbar-reset-toast 1.7s ease forwards;
+}
+
+@keyframes toolbar-reset-toast {
+  0% { opacity: 0; transform: translateY(-3px); }
+  10% { opacity: 1; transform: translateY(0); }
+  75% { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; transform: translateY(0); }
 }
 
 .toolbar-quick-hint {
@@ -444,6 +537,121 @@
   background: var(--accent-hover);
   flex-shrink: 0;
   pointer-events: none;
+}
+
+/* ── Shortcut assignment menu (right-click a toolbar button) ── */
+
+.shortcut-menu {
+  position: fixed;
+  z-index: 50;
+  width: 208px;
+  padding: 10px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  animation: toolbar-expand 0.12s ease;
+}
+
+.shortcut-menu-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.shortcut-menu-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.shortcut-menu-desc {
+  margin: 0 0 10px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-muted);
+  overflow: hidden;
+  transform-origin: top;
+  animation: shortcut-desc-expand 0.18s ease;
+}
+
+/* The description unfurls when the popup is opened (expanded) by right-click. */
+@keyframes shortcut-desc-expand {
+  from { opacity: 0; max-height: 0; transform: translateY(-4px); }
+  to { opacity: 1; max-height: 60px; transform: translateY(0); }
+}
+
+.shortcut-menu-reset-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+  transition: background 0.12s ease, color 0.12s ease, transform 0.1s ease;
+}
+
+.shortcut-menu-reset-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.shortcut-menu-reset-btn:active {
+  transform: rotate(-40deg);
+}
+
+.shortcut-menu-capture {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  padding: 6px;
+  border: 1px dashed var(--border-light);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text);
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.shortcut-menu-capture:hover {
+  background: var(--bg-hover);
+  border-color: var(--border);
+}
+
+.shortcut-menu-capture kbd {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--border-light);
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+
+.shortcut-menu-none {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.shortcut-menu-recording {
+  color: var(--accent-hover);
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.shortcut-menu-error {
+  margin-top: 8px;
+  color: var(--warning);
+  font-size: 11.5px;
+  line-height: 1.4;
 }
 
 .toolbar-btn[draggable='true'] {

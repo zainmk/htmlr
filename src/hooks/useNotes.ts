@@ -255,19 +255,31 @@ export function useNotes() {
   // last-modified. Keeps updatedAt intact so reordering never counts as an edit.
   const reorderPinned = useCallback(async (orderedIds: string[]) => {
     await flushPending()
-    for (let i = 0; i < orderedIds.length; i++) {
-      const note = await storage.readNote(orderedIds[i])
-      if (note && note.pinnedOrder !== i) {
-        await storage.writeNote({ ...note, pinnedOrder: i })
-      }
-    }
+    const orderIndex = new Map(orderedIds.map((id, i) => [id, i]))
+
+    // Optimistic: resort the list in memory right away so the sidebar snaps into the new order
+    // instead of waiting on the per-note disk writes below (which lag on a network/cloud folder).
+    // The pinned notes lead the list, in the given order; the unpinned tail is untouched.
+    setNoteList(prev => {
+      const pinned = prev
+        .filter(n => orderIndex.has(n.id))
+        .sort((a, b) => orderIndex.get(a.id)! - orderIndex.get(b.id)!)
+        .map(n => ({ ...n, pinnedOrder: orderIndex.get(n.id)! }))
+      const rest = prev.filter(n => !orderIndex.has(n.id))
+      return [...pinned, ...rest]
+    })
     // Keep the in-memory active note's order in sync, so a later edit doesn't write back a stale one.
     setActiveNote(current => {
-      const idx = current ? orderedIds.indexOf(current.id) : -1
+      const idx = current ? orderIndex.get(current.id) ?? -1 : -1
       return idx === -1 ? current : { ...current!, pinnedOrder: idx }
     })
-    await loadNoteList()
-  }, [flushPending, loadNoteList])
+
+    // Persist in the background, in parallel — only the notes whose order actually changed.
+    await Promise.all(orderedIds.map(async (id, i) => {
+      const note = await storage.readNote(id)
+      if (note && note.pinnedOrder !== i) await storage.writeNote({ ...note, pinnedOrder: i })
+    }))
+  }, [flushPending])
 
   // Opens the note's real saved file in a new tab. Flushes any pending edit first so the file
   // reflects the latest content — that flush may also resolve a pending rename, so the id it
