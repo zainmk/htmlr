@@ -6,7 +6,9 @@ A WYSIWYG .html note editor that stores everything you write as plain, self-cont
 
 ## Purpose
 
-Most note apps hold your notes hostage in a proprietary database or a company's cloud. htmlr does the opposite: every note is a real `.html` file, readable in any browser, greppable, and portable by design. You choose where those files live — a local folder, an external drive, or a mapped NAS share — and htmlr just reads and writes into it. There's nothing to export "in case you leave," because you were never locked in.
+Most note apps hold your notes hostage in a proprietary database or a company's cloud. htmlr does the opposite: every note is a real `.html` file, readable in any browser, greppable, and portable by design. You choose where those files live — a local folder, an external drive, or a mapped NAS share — and htmlr just reads and writes into it. There's nothing to export "in case you leave," because you were never locked in. Works well with [unicoder](https://chromewebstore.google.com/detail/unicoder/lnjibkhlchplofnkdfpfanahbcnifddg) 👍 - for inline unicode/text replacement features.
+
+> I've always been searching for a note-taking app that allows me to take notes online/offline, but also be able to directly paste images in, without an external link or upload. The majority of what's out there (Google Keep, iCloud Notes, OneNote, etc...) are limited in what they can hold, constrain you in their 'ecosystem', and require them 'holding' your data. I used to keep legacy versions of Wordpad installed on my computer, so I could continue to take notes on .rtf files (before Microsoft outdated everyone's built-in, free .rtf editor/viewer for a subscription-based .docx alternative - Word). htmlr is my answer of creating a note-taking application that makes full use of the free tools of your browser (Chromium) to hold .html files on your local device. You own your notes, can move them around as you like, and they are held in a non-proprietary file format that is accessible by many devices now and in the forseeable future, so you're never locked in. You can copy/paste screenshots/images directly into the file, viewable offline, and link access to your notes by just pasting/navigating to the URL. Any offline updates - sync when network is established. Let me know if you find it useful!
 
 ## Features
 
@@ -71,16 +73,6 @@ src/
     db.ts                IndexedDB wrapper (note cache + key-value store)
     noteFile.ts          note <-> HTML file serialization, shared by storage and export
   types.ts               Note / NoteMetadata / SaveStatus types
-```
-
-## Getting started
-
-```bash
-npm install
-npm run dev       # start the dev server
-npm run build     # type-check and build for production (includes the service worker)
-npm run preview   # serve the production build locally (needed to test the PWA/offline behavior)
-npm run lint      # run Oxlint
 ```
 
 Requires a Chromium-based browser (Chrome, Edge, etc.) for on-device folder storage and PWA install. Other browsers run in the IndexedDB-only fallback mode.
