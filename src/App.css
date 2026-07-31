@@ -841,6 +841,56 @@
   border-radius: var(--radius);
 }
 
+/* Resizable image: the NodeView wrapper shrink-wraps the image, with a drag handle at its corner. */
+.img-wrap {
+  position: relative;
+  display: inline-block;
+  vertical-align: top;
+  max-width: 100%;
+  line-height: 0;
+  /* small gap so two side-by-side images (or an image beside text) don't butt right up together */
+  margin: 0 4px 4px 0;
+}
+
+.prose-editor .img-wrap img {
+  width: 100%;
+  height: auto;
+  display: block;
+  cursor: grab;
+}
+
+.prose-editor .img-wrap img:active {
+  cursor: grabbing;
+}
+
+.img-wrap.is-selected img,
+.img-wrap.is-resizing img {
+  outline: 2px solid var(--accent-dim);
+  outline-offset: 1px;
+}
+
+.img-resize-handle {
+  position: absolute;
+  right: -5px;
+  bottom: -5px;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  background: var(--accent-hover);
+  border: 2px solid var(--bg);
+  box-shadow: var(--shadow-sm);
+  cursor: nwse-resize;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  touch-action: none;
+}
+
+.img-wrap:hover .img-resize-handle,
+.img-wrap.is-selected .img-resize-handle,
+.img-wrap.is-resizing .img-resize-handle {
+  opacity: 1;
+}
+
 /* Placeholder */
 .prose-editor p.is-editor-empty:first-child::before {
   content: attr(data-placeholder);

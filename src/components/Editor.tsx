@@ -1,15 +1,14 @@
 import { useEffect, useRef } from 'react'
 import { useEditor, EditorContent } from '@tiptap/react'
 import type { EditorView } from '@tiptap/pm/view'
-import { TextSelection } from '@tiptap/pm/state'
 import StarterKit from '@tiptap/starter-kit'
 import TaskList from '@tiptap/extension-task-list'
 import TaskItem from '@tiptap/extension-task-item'
-import Image from '@tiptap/extension-image'
 import TextAlign from '@tiptap/extension-text-align'
 import Highlight from '@tiptap/extension-highlight'
 import Placeholder from '@tiptap/extension-placeholder'
 import CharacterCount from '@tiptap/extension-character-count'
+import { ResizableImage } from './ResizableImage'
 import { EditorToolbar } from './EditorToolbar'
 import type { Note, SaveStatus } from '../types'
 
@@ -35,7 +34,8 @@ const extensions = [
   }),
   TaskList,
   TaskItem.configure({ nested: true }),
-  Image.configure({ allowBase64: true }),
+  // Inline so images flow with text — you can sit two side by side or put text beside one.
+  ResizableImage.configure({ inline: true, allowBase64: true }),
   TextAlign.configure({ types: ['heading', 'paragraph'] }),
   Highlight,
   Placeholder.configure({ placeholder: 'Start writing…' }),
@@ -66,18 +66,9 @@ function handleImagePaste(view: EditorView, event: ClipboardEvent): boolean {
     readImageAsDataUrl(file).then(src => {
       if (view.isDestroyed) return
       const node = view.state.schema.nodes.image.create({ src, alt: file.name })
-      const tr = view.state.tr.replaceSelectionWith(node)
-      // replaceSelectionWith leaves the image node-selected, so typing right after a paste
-      // would replace it. Land a real text cursor after the image instead: if the image is
-      // now the last thing in the doc, give it a paragraph to type into; otherwise step into
-      // whatever paragraph already follows.
-      let afterImage = tr.selection.to
-      if (afterImage === tr.doc.content.size) {
-        tr.insert(afterImage, view.state.schema.nodes.paragraph.create())
-      }
-      afterImage += 1
-      tr.setSelection(TextSelection.near(tr.doc.resolve(afterImage)))
-      view.dispatch(tr)
+      // Images are inline, so this drops the image in at the cursor and leaves the cursor right
+      // after it — pasting two in a row lands them side by side, and you can type beside them.
+      view.dispatch(view.state.tr.replaceSelectionWith(node).scrollIntoView())
     })
   }
   return true
