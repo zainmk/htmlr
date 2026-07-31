@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react'
 import { PanelLeftOpen, PanelLeftClose, FolderOpen } from 'lucide-react'
+import { Analytics } from '@vercel/analytics/react'
 import { useNotes } from './hooks/useNotes'
 import { usePwaInstall } from './hooks/usePwaInstall'
 import { Sidebar } from './components/Sidebar'
@@ -97,49 +98,52 @@ export default function App() {
   }
 
   return (
-    <div className="app">
-      <Sidebar
-        notes={noteList}
-        activeId={activeNote?.id ?? null}
-        folderName={folderName}
-        isUsingFolder={isUsingFolder}
-        collapsed={sidebarCollapsed}
-        onOpen={openNote}
-        onCreate={createNote}
-        onDelete={deleteNote}
-        onTogglePin={togglePin}
-        onReorderPinned={reorderPinned}
-        onChooseDirectory={chooseDirectory}
-      />
+    <>
+      <div className="app">
+        <Sidebar
+          notes={noteList}
+          activeId={activeNote?.id ?? null}
+          folderName={folderName}
+          isUsingFolder={isUsingFolder}
+          collapsed={sidebarCollapsed}
+          onOpen={openNote}
+          onCreate={createNote}
+          onDelete={deleteNote}
+          onTogglePin={togglePin}
+          onReorderPinned={reorderPinned}
+          onChooseDirectory={chooseDirectory}
+        />
 
-      <button
-        className="sidebar-toggle-btn"
-        onClick={toggleSidebar}
-        title={sidebarCollapsed ? 'Expand sidebar (Esc)' : 'Collapse sidebar (Esc)'}
-      >
-        {sidebarCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
-      </button>
+        <button
+          className="sidebar-toggle-btn"
+          onClick={toggleSidebar}
+          title={sidebarCollapsed ? 'Expand sidebar (Esc)' : 'Collapse sidebar (Esc)'}
+        >
+          {sidebarCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+        </button>
 
-      <main className="main">
-        {activeNote ? (
-          <Editor
-            note={activeNote}
-            saveStatus={saveStatus}
-            titleConflict={titleConflict}
-            sidebarCollapsed={sidebarCollapsed}
-            onTitleChange={title => updateNote({ title }, activeNote)}
-            onContentChange={content => updateNote({ content }, activeNote)}
-            onOpenFile={() => openNoteFile(activeNote)}
-          />
-        ) : (
-          <div className="empty-state">
-            <p>No notes yet.</p>
-            <button className="btn-primary" onClick={createNote}>
-              Create your first note
-            </button>
-          </div>
-        )}
-      </main>
-    </div>
+        <main className="main">
+          {activeNote ? (
+            <Editor
+              note={activeNote}
+              saveStatus={saveStatus}
+              titleConflict={titleConflict}
+              sidebarCollapsed={sidebarCollapsed}
+              onTitleChange={title => updateNote({ title }, activeNote)}
+              onContentChange={content => updateNote({ content }, activeNote)}
+              onOpenFile={() => openNoteFile(activeNote)}
+            />
+          ) : (
+            <div className="empty-state">
+              <p>No notes yet.</p>
+              <button className="btn-primary" onClick={createNote}>
+                Create your first note
+              </button>
+            </div>
+          )}
+        </main>
+      </div>
+      <Analytics />
+    </>
   )
 }
