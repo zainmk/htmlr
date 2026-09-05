@@ -9,7 +9,10 @@ let dbPromise: Promise<IDBDatabase> | null = null
 
 function openDb(): Promise<IDBDatabase> {
   if (!dbPromise) {
-    dbPromise = new Promise((resolve, reject) => {
+    dbPromise = new Promise<IDBDatabase>((resolve, reject) => {
+      // Reading `indexedDB` at all can throw where storage is blocked outright (Firefox private
+      // browsing, enterprise policy) — inside the executor that surfaces as a rejection, not a
+      // synchronous crash on whichever call site happened to be first.
       const req = indexedDB.open(DB_NAME, DB_VERSION)
       req.onupgradeneeded = () => {
         const db = req.result
@@ -18,6 +21,12 @@ function openDb(): Promise<IDBDatabase> {
       }
       req.onsuccess = () => resolve(req.result)
       req.onerror = () => reject(req.error)
+      // Another tab holding an older version open blocks the upgrade indefinitely; fail loudly
+      // rather than leaving every caller hanging on a promise that never settles.
+      req.onblocked = () => reject(new DOMException('Another htmlr tab is blocking a database upgrade.', 'InvalidStateError'))
+    }).catch(err => {
+      dbPromise = null // a failed open must not be cached forever — let the next attempt retry
+      throw err
     })
   }
   return dbPromise
@@ -28,8 +37,15 @@ async function run<T>(store: string, mode: IDBTransactionMode, exec: (store: IDB
   return new Promise<T>((resolve, reject) => {
     const tx = db.transaction(store, mode)
     const req = exec(tx.objectStore(store))
-    req.onsuccess = () => resolve(req.result as T)
+    let result: T | undefined
+    req.onsuccess = () => { result = req.result as T }
     req.onerror = () => reject(req.error)
+    // Resolve on the *transaction*, not the request: a write request can report success and the
+    // transaction still abort afterwards (quota exceeded, disk error), which would otherwise be
+    // reported to the user as a completed save.
+    tx.oncomplete = () => resolve(result as T)
+    tx.onabort = () => reject(tx.error)
+    tx.onerror = () => reject(tx.error)
   })
 }
 

@@ -36,12 +36,16 @@ export function ShortcutMenu({ toolName, description, x, y, shortcut, hasCustom,
       if (e.button !== 0) return // only a left-click outside dismisses; right-click is for expanding
       if (!ref.current?.contains(e.target as Node)) onClose()
     }
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !recording) { e.preventDefault(); onClose() } }
+    // Capture phase + stopPropagation so the app's global Escape handler doesn't also fire and
+    // collapse the sidebar behind the popup this press was meant to dismiss.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !recording) { e.preventDefault(); e.stopPropagation(); onClose() }
+    }
     document.addEventListener('pointerdown', onPointerDown)
-    document.addEventListener('keydown', onKey)
+    document.addEventListener('keydown', onKey, true)
     return () => {
       document.removeEventListener('pointerdown', onPointerDown)
-      document.removeEventListener('keydown', onKey)
+      document.removeEventListener('keydown', onKey, true)
     }
   }, [recording, onClose])
 

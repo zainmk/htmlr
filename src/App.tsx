@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react'
-import { PanelLeftOpen, PanelLeftClose, FolderOpen } from 'lucide-react'
+import { PanelLeftOpen, PanelLeftClose, FolderOpen, RefreshCw } from 'lucide-react'
 import { Analytics } from '@vercel/analytics/react'
 import { useNotes } from './hooks/useNotes'
 import { usePwaInstall } from './hooks/usePwaInstall'
@@ -18,9 +18,9 @@ const NARROW_VIEWPORT_BREAKPOINT = 768
 export default function App() {
   const {
     status, folderName, isUsingFolder,
-    noteList, activeNote, saveStatus, titleConflict,
+    noteList, activeNote, saveStatus, titleConflict, openToken, folderError,
     chooseDirectory, reconnect, continueWithoutFolder,
-    openNote, createNote, updateNote, deleteNote, togglePin, reorderPinned, openNoteFile,
+    openNote, createNote, updateNote, deleteNote, togglePin, reorderPinned, openNoteFile, retrySave,
   } = useNotes()
 
   const { canInstall, install } = usePwaInstall()
@@ -42,7 +42,9 @@ export default function App() {
   // Esc toggles the sidebar open/closed from anywhere in the app.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') toggleSidebar()
+      // defaultPrevented means a nearer handler (the toolbar's shortcut popup) already used this
+      // Escape to dismiss itself — one press shouldn't also collapse the sidebar behind it.
+      if (e.key === 'Escape' && !e.defaultPrevented) toggleSidebar()
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
@@ -54,6 +56,26 @@ export default function App() {
     return (
       <div className="app-loading">
         <div className="app-loading-spinner" />
+      </div>
+    )
+  }
+
+  // Storage itself couldn't be opened — IndexedDB is unavailable (Firefox private browsing, a
+  // storage policy, a corrupted database). There is nothing to load and nothing to fall back to,
+  // so say so instead of spinning forever on a loader that will never resolve.
+  if (status === 'error') {
+    return (
+      <div className="app-loading app-loading--recover">
+        <div className="app-loading-prompt">
+          <button className="btn-primary" onClick={() => window.location.reload()}>
+            <RefreshCw size={15} />
+            Try again
+          </button>
+          <p className="app-loading-prompt-text">
+            htmlr couldn't open this browser's local storage, so it can't load your notes. This
+            usually means private browsing or a setting that blocks site data.
+          </p>
+        </div>
       </div>
     )
   }
@@ -126,12 +148,16 @@ export default function App() {
           {activeNote ? (
             <Editor
               note={activeNote}
+              openToken={openToken}
               saveStatus={saveStatus}
               titleConflict={titleConflict}
+              folderError={folderError}
+              folderName={folderName}
               sidebarCollapsed={sidebarCollapsed}
               onTitleChange={title => updateNote({ title }, activeNote)}
               onContentChange={content => updateNote({ content }, activeNote)}
               onOpenFile={() => openNoteFile(activeNote)}
+              onRetrySave={retrySave}
             />
           ) : (
             <div className="empty-state">

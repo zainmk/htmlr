@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { AlertTriangle } from 'lucide-react'
 import { useEditor, EditorContent } from '@tiptap/react'
 import type { EditorView } from '@tiptap/pm/view'
 import StarterKit from '@tiptap/starter-kit'
@@ -14,12 +15,18 @@ import type { Note, SaveStatus } from '../types'
 
 interface Props {
   note: Note
+  /** Changes only when a different note is opened — never on save, rename, pin or reorder. */
+  openToken: number
   saveStatus: SaveStatus
   titleConflict: boolean
+  /** A folder is connected but the last write didn't reach it — the note lives only in the cache. */
+  folderError: boolean
+  folderName: string | null
   sidebarCollapsed: boolean
   onTitleChange: (title: string) => void
   onContentChange: (content: string) => void
   onOpenFile: () => void
+  onRetrySave: () => void
 }
 
 const extensions = [
@@ -74,10 +81,12 @@ function handleImagePaste(view: EditorView, event: ClipboardEvent): boolean {
   return true
 }
 
-export function Editor({ note, saveStatus, titleConflict, sidebarCollapsed, onTitleChange, onContentChange, onOpenFile }: Props) {
-  // Identifies a note across renames — unlike note.id (now the slugified title), this never
-  // changes, so a successful rename doesn't get mistaken for switching to a different note.
-  const lastNoteKey = useRef<string | null>(null)
+export function Editor({ note, openToken, saveStatus, titleConflict, folderError, folderName, sidebarCollapsed, onTitleChange, onContentChange, onOpenFile, onRetrySave }: Props) {
+  // Which note the editor's document currently holds. Tracked by openToken rather than by any
+  // field of the note: note.id changes on rename (a rename isn't a note switch), and note.createdAt
+  // is not unique — files copied into the folder without a data-htmlr-created attribute are all
+  // stamped at parse time and can collide, which used to leave the previous note's body on screen.
+  const lastNoteKey = useRef<number | null>(null)
   const wasSidebarCollapsed = useRef(sidebarCollapsed)
 
   const editor = useEditor({
@@ -92,14 +101,14 @@ export function Editor({ note, saveStatus, titleConflict, sidebarCollapsed, onTi
     },
   })
 
-  // Swap content when active note changes
+  // Swap content when the active note changes
   useEffect(() => {
     if (!editor) return
-    if (lastNoteKey.current !== note.createdAt) {
-      lastNoteKey.current = note.createdAt
+    if (lastNoteKey.current !== openToken) {
+      lastNoteKey.current = openToken
       editor.commands.setContent(note.content, { emitUpdate: false })
     }
-  }, [editor, note.createdAt, note.content])
+  }, [editor, openToken, note.content])
 
   // Closing the sidebar (Esc, or the toggle button) hands focus back to the note body.
   useEffect(() => {
@@ -111,7 +120,19 @@ export function Editor({ note, saveStatus, titleConflict, sidebarCollapsed, onTi
   const wordCount = editor?.storage.characterCount?.words() ?? 0
   const charCount = editor?.storage.characterCount?.characters() ?? 0
 
-  const statusLabel = saveStatus === 'saved' ? 'Saved' : 'Unsaved changes'
+  // Three states, in priority order: an edit still in the debounce window, then a save that
+  // reached the cache but not the folder, then a clean save. The middle one is the one that used
+  // to be invisible — the write failed, was swallowed, and the bar still read "Saved".
+  const status = saveStatus === 'unsaved'
+    ? { kind: 'unsaved', label: 'Unsaved changes', title: "This edit hasn't been written yet." }
+    : folderError
+      ? {
+          kind: 'folder-error',
+          label: 'Saved in browser only',
+          title: `htmlr couldn't write this note to ${folderName ?? 'your notes folder'}, so the file there is out of date. `
+            + "The note is safe in this browser's storage. Check the folder is reachable, then retry.",
+        }
+      : { kind: 'saved', label: 'Saved', title: '' }
 
   return (
     <div className="editor-pane">
@@ -137,7 +158,17 @@ export function Editor({ note, saveStatus, titleConflict, sidebarCollapsed, onTi
       </div>
 
       <div className="status-bar">
-        <span className={`save-status save-status--${saveStatus}`}>{statusLabel}</span>
+        <span className="status-bar-save">
+          <span className={`save-status save-status--${status.kind}`} title={status.title || undefined}>
+            {status.kind === 'folder-error' && <AlertTriangle size={11} />}
+            {status.label}
+          </span>
+          {status.kind === 'folder-error' && (
+            <button className="save-status-retry" onClick={onRetrySave} type="button">
+              Retry
+            </button>
+          )}
+        </span>
         <span className="status-bar-counts">
           {wordCount} word{wordCount !== 1 ? 's' : ''} · {charCount} char{charCount !== 1 ? 's' : ''}
         </span>

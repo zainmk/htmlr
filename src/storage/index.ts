@@ -143,7 +143,13 @@ export const storage = {
     dirHandle = handle
     await kvStore.set(DIR_HANDLE_KEY, handle)
     await kvStore.delete(FALLBACK_KEY)
-    await reconcileFromDisk()
+    try {
+      await reconcileFromDisk()
+    } catch {
+      // The folder was picked but can't be read right now (a network mount that just went away,
+      // for instance). The connection itself still stands — carry on with the cache and let the
+      // next reconcile pick the files up, rather than rejecting and leaving the button dead.
+    }
     return true
   },
 
@@ -203,19 +209,26 @@ export const storage = {
   },
 
   /** Writes a note. Pass `previousId` when the note's id is changing (a title-driven rename) so the old
-   *  file/cache entry gets cleaned up — otherwise it's treated as a normal save under the same id. */
-  async writeNote(note: Note, previousId?: string): Promise<void> {
+   *  file/cache entry gets cleaned up — otherwise it's treated as a normal save under the same id.
+   *
+   *  Returns false when a folder is connected but couldn't be written to (permission revoked
+   *  mid-session, a network mount that dropped). The note is still safe in the cache, but the
+   *  .html file on disk is now stale or missing — the caller is expected to say so rather than
+   *  reporting a clean save, since from the user's side nothing else distinguishes the two. */
+  async writeNote(note: Note, previousId?: string): Promise<boolean> {
+    let folderOk = true
     if (dirHandle) {
       try {
         await writeNoteFile(dirHandle, note, previousId)
       } catch {
-        // folder write failed (e.g. permission revoked mid-session) — cache below still keeps the note safe
+        folderOk = false // cache below still keeps the note safe
       }
     }
     if (previousId !== undefined && previousId !== note.id) {
       await notesCache.delete(previousId)
     }
     await notesCache.put(note)
+    return folderOk
   },
 
   async deleteNote(id: string): Promise<void> {

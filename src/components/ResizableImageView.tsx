@@ -27,11 +27,15 @@ export function ResizableImageView({ node, updateAttributes, selected }: NodeVie
     const onUp = () => {
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', onUp)
-      updateAttributes({ width: latest }) // single committing transaction
+      window.removeEventListener('pointercancel', onUp)
+      // A click on the handle that never moved isn't a resize — committing there would push an
+      // undo step and mark the note unsaved for a change the reader can't see.
+      if (latest !== startW) updateAttributes({ width: latest }) // single committing transaction
       setDragWidth(null)
     }
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
   }
 
   const width = dragWidth ?? node.attrs.width ?? null

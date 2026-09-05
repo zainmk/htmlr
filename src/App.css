@@ -928,8 +928,36 @@
   background: currentColor;
 }
 
+.status-bar-save {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .save-status--saved { color: var(--success); }
 .save-status--unsaved { color: var(--warning); }
+.save-status--folder-error { color: var(--danger); }
+
+/* The dot reads as "state"; the folder warning carries its own icon instead, so drop it there. */
+.save-status--folder-error::before { display: none; }
+
+.save-status-retry {
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 10.5px;
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+
+.save-status-retry:hover {
+  background: var(--danger-bg);
+  border-color: var(--danger);
+  color: var(--danger);
+}
 
 /* ── Empty state ─────────────────────────────────── */
 
