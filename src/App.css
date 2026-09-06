@@ -368,22 +368,36 @@
 
 /* ── Toolbar ─────────────────────────────────────── */
 
-/* The shell is the glass panel. It holds the always-on quick toolbar and, when hovered/focused,
-   grows to reveal the full master toolbar above a divider line. */
+/* The dock holds the toolbar's place in the layout at its *expanded* height, always. The shell
+   floats inside it, so revealing the master row on hover fills space that was already set aside
+   instead of shoving the title and body down 43px (and resizing the scroll viewport under the
+   reader's cursor). At very narrow widths the master row can wrap past the reserved height; it
+   then overlaps the title for as long as the pointer is there, which is still preferable to the
+   whole note jumping. */
+.toolbar-dock {
+  position: relative;
+  flex-shrink: 0;
+  height: var(--toolbar-expanded-h);
+  margin: 20px 24px 0;
+  z-index: 10;
+}
+
+/* The shell is the glass panel. Master toolbar on top, quick toolbar beneath a divider line;
+   whichever of the two isn't the resting row is revealed when the bar is hovered/focused. */
 .toolbar-shell {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  margin: 20px 24px 0;
   padding: 6px;
   background: var(--bg-toolbar);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid var(--border-light);
   border-radius: var(--radius);
-  position: sticky;
+  position: absolute;
   top: 0;
-  z-index: 10;
+  left: 0;
+  right: 0;
 }
 
 .toolbar-row {
@@ -393,8 +407,12 @@
   gap: 1px;
 }
 
-/* The master toolbar and the divider fade/slide in as the shell expands. */
+/* Whichever row is the newly revealed one eases in rather than popping: the master row when tools
+   are favorited, the empty quick row when they aren't. The row that was already there simply ends
+   up lower, which reads as it sliding down to make room. (A row that's permanently mounted runs
+   this once on first paint, which is harmless.) */
 .toolbar-row--master,
+.toolbar-row--quick,
 .toolbar-quick-divider {
   animation: toolbar-expand 0.14s ease;
 }
@@ -420,9 +438,14 @@
   transition: background 0.12s ease, box-shadow 0.12s ease, padding 0.12s ease;
 }
 
-/* Reserve room on the right for the reset button while the toolbar is engaged. */
+/* Reserve room on the right for whichever pinned control sits over this row: the export button on
+   the top row (always) and the reset button on the lower one (only while the bar is engaged). */
 .toolbar-row--reset-gap {
   padding-right: 30px;
+}
+
+.toolbar-row--export-gap {
+  padding-right: 36px;
 }
 
 /* Highlight the quick row while a button is being dragged over it. */
@@ -431,11 +454,13 @@
   box-shadow: inset 0 0 0 1px var(--accent-dim);
 }
 
-/* ── Reset-toolbar button (top-right, hover to reveal, hold to arm) ── */
+/* ── Reset-toolbar button (hover to reveal, hold to arm) ── */
 
+/* Sits over the lower row — the one only revealed on hover — mirroring the export button pinned to
+   the top row. `--reset-gap` keeps that row's own content clear of it. */
 .toolbar-reset-btn {
   position: absolute;
-  top: 5px;
+  bottom: 5px;
   right: 5px;
   z-index: 15;
   display: inline-flex;
@@ -493,7 +518,7 @@
 /* Transient "Toolbar reset" confirmation, top-right where the reset button lives. */
 .toolbar-reset-toast {
   position: absolute;
-  top: 5px;
+  bottom: 5px;
   right: 5px;
   z-index: 16;
   display: inline-flex;
@@ -517,6 +542,16 @@
   10% { opacity: 1; transform: translateY(0); }
   75% { opacity: 1; transform: translateY(0); }
   100% { opacity: 0; transform: translateY(0); }
+}
+
+/* The export control: pinned to the shell's top-right, over whichever row is currently on top.
+   Sized and styled as an ordinary toolbar button (it is one) — `top: 6px` lines it up exactly with
+   the first row, since the shell's own padding is 6px. */
+.toolbar-export-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 15;
 }
 
 .toolbar-quick-hint {
@@ -699,10 +734,6 @@
   flex-shrink: 0;
 }
 
-.toolbar-spacer {
-  flex: 1;
-}
-
 /* ── Editor content area ─────────────────────────── */
 
 .editor-scroll {
@@ -789,6 +820,13 @@
 }
 
 .prose-editor li { margin: 0.2em 0; }
+
+/* A list item's text lives in a nested <p>, and `.prose-editor > * + *` above only spaces top-level
+   blocks — so that <p> was falling through to the UA default of 1em top/bottom. In a task item that
+   pushed the label a whole line below its checkbox; in a plain list it doubled the gap between rows.
+   Sibling paragraphs inside one item still need separating, hence the p + p rule. */
+.prose-editor li p { margin: 0; }
+.prose-editor li p + p { margin-top: 0.6em; }
 
 /* Task list */
 .prose-editor ul[data-type="taskList"] {

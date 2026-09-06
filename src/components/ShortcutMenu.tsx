@@ -15,25 +15,20 @@ interface Props {
   onAssign: (s: Shortcut) => void
   onReset: () => void
   onClose: () => void
-  // Hover-card plumbing: keep the popup alive while the pointer is over it, and pin it (opting out
-  // of hover-dismiss) once the user actually interacts.
-  onHoverEnter?: () => void
-  onHoverLeave?: () => void
-  onInteract?: () => void
-  onExpand?: () => void
 }
 
 const MENU_W = 208
 
-export function ShortcutMenu({ toolName, description, x, y, shortcut, hasCustom, hasDefault, findConflict, onAssign, onReset, onClose, onHoverEnter, onHoverLeave, onInteract, onExpand }: Props) {
+export function ShortcutMenu({ toolName, description, x, y, shortcut, hasCustom, hasDefault, findConflict, onAssign, onReset, onClose }: Props) {
   const ref = useRef<HTMLDivElement | null>(null)
   const [recording, setRecording] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   // Close on click outside or Escape (Escape cancels recording first if it's active).
   useEffect(() => {
+    // Any press outside dismisses, whichever button. A right-click on another tool dismisses here
+    // and that tool's own contextmenu handler opens its popup, so the card follows the right-click.
     const onPointerDown = (e: PointerEvent) => {
-      if (e.button !== 0) return // only a left-click outside dismisses; right-click is for expanding
       if (!ref.current?.contains(e.target as Node)) onClose()
     }
     // Capture phase + stopPropagation so the app's global Escape handler doesn't also fire and
@@ -78,10 +73,9 @@ export function ShortcutMenu({ toolName, description, x, y, shortcut, hasCustom,
       className="shortcut-menu"
       style={{ left, top }}
       role="menu"
-      onMouseEnter={onHoverEnter}
-      onMouseLeave={onHoverLeave}
-      onPointerDown={onInteract}
-      onContextMenu={e => { e.preventDefault(); onExpand?.() }}
+      // Suppress the browser's own menu inside the card — right-click is our open gesture, and a
+      // native context menu landing on top of the popup would just be in the way.
+      onContextMenu={e => e.preventDefault()}
     >
       <div className="shortcut-menu-header">
         <span className="shortcut-menu-title">{toolName}</span>

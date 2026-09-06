@@ -12,6 +12,8 @@ const STYLE = `
     blockquote{border-left:3px solid #d1d5db;margin:0;padding-left:1em;color:#6b7280}
     ul[data-type="taskList"]{list-style:none;padding:0}
     ul[data-type="taskList"] li{display:flex;gap:.5em;align-items:flex-start;margin:.25em 0}
+    ul[data-type="taskList"] li>div{flex:1}
+    li p{margin:0}li p+p{margin-top:.6em}
     mark{background:#fef08a;border-radius:2px;padding:0 2px}
     a{color:#2563eb}hr{border:none;border-top:1px solid #e5e7eb;margin:2em 0}
     img{max-width:100%;border-radius:4px}

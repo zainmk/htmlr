@@ -21,7 +21,8 @@ interface Props {
 }
 
 // A single toolbar button. `group` drives where dividers fall in the master toolbar; `rightAligned`
-// marks the one button (open-file) that sits after a spacer, pushed to the far edge.
+// marks the one button (open-file) lifted out of the rows entirely and pinned to the shell's
+// top-right, so it's always on the row that's visible at rest.
 interface ToolItem {
   id: string
   group: number
@@ -88,9 +89,10 @@ function insertIndexAt(rowEl: HTMLElement, clientX: number): number {
 export function EditorToolbar({ editor, onOpenFile }: Props) {
   const [quickIds, setQuickIds] = useState<string[]>(loadQuickIds)
   const [customShortcuts, setCustomShortcuts] = useState<Record<string, Shortcut>>(loadCustomShortcuts)
-  // `expanded` popups (opened by right-click) also show the tool's description; hover popups stay condensed.
-  const [menu, setMenu] = useState<{ id: string; x: number; y: number; expanded: boolean } | null>(null)
-  const [pinned, setPinned] = useState(false)
+  // The shortcut popup is right-click only, and always shows the full card (description, current
+  // binding, capture button). It stays up until it's explicitly dismissed, so there's no pinned /
+  // condensed distinction left to track.
+  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null)
   const [holding, setHolding] = useState(false)
   const [justReset, setJustReset] = useState(false)
   const [hover, setHover] = useState(false)
@@ -108,11 +110,6 @@ export function EditorToolbar({ editor, onOpenFile }: Props) {
   const actionsRef = useRef<Record<string, () => void>>({})
   const customRef = useRef(customShortcuts)
   customRef.current = customShortcuts
-  // Hover-card timers for the shortcut popup. `pinnedRef` mirrors `pinned` for use inside timers.
-  const pinnedRef = useRef(pinned)
-  pinnedRef.current = pinned
-  const openTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const resetToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const expandTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -161,10 +158,7 @@ export function EditorToolbar({ editor, onOpenFile }: Props) {
     return () => document.removeEventListener('keydown', onKeyDown, true)
   }, [editor])
 
-  const cancelOpen = () => { if (openTimer.current) { clearTimeout(openTimer.current); openTimer.current = null } }
-  const cancelClose = () => { if (closeTimer.current) { clearTimeout(closeTimer.current); closeTimer.current = null } }
   useEffect(() => () => {
-    cancelOpen(); cancelClose()
     if (resetTimer.current) clearTimeout(resetTimer.current)
     if (resetToastTimer.current) clearTimeout(resetToastTimer.current)
     if (expandTimer.current) clearTimeout(expandTimer.current)
@@ -183,46 +177,15 @@ export function EditorToolbar({ editor, onOpenFile }: Props) {
     cancelHold()
   }
 
-  const openMenuAt = (id: string, el: HTMLElement, expanded: boolean) => {
+  // The popup is opened by right-clicking a tool, and only then. There is deliberately no hover
+  // affordance: sweeping the pointer across the bar on the way to a button shouldn't throw a card
+  // up over the note. Right-clicking a different tool switches to it; otherwise it stays until
+  // dismissed by a click outside or Escape.
+  const openMenuAt = (id: string, el: HTMLElement) => {
     const rect = el.getBoundingClientRect()
-    setMenu({ id, x: rect.left, y: rect.bottom + 6, expanded })
+    setMenu({ id, x: rect.left, y: rect.bottom + 6 })
   }
-  const closeMenu = () => { cancelOpen(); cancelClose(); pinnedRef.current = false; setPinned(false); setMenu(null) }
-  const pinMenu = () => { pinnedRef.current = true; setPinned(true) }
-  // Leave the popup open but hand it back to hover control — used after assign/reset so the change
-  // stays on screen to confirm, then dismisses naturally once the pointer leaves.
-  const unpinMenu = () => { pinnedRef.current = false; setPinned(false) }
-  // Right-clicking the popup toggles it between condensed and expanded, in place (same instance, so
-  // it animates rather than remounting). Expanding pins it; collapsing hands it back to hover.
-  const expandMenu = () => {
-    if (!menu) return
-    if (menu.expanded) {
-      unpinMenu()
-      setMenu({ ...menu, expanded: false })
-    } else {
-      pinMenu()
-      setMenu({ ...menu, expanded: true })
-    }
-  }
-
-  // Hovering a tool opens its shortcut popup after a short intent delay; leaving it (and not moving
-  // onto the popup) closes it. Once the user interacts with the popup it's pinned, so it stays put
-  // while recording a key even if the pointer wanders off.
-  const hoverOpenMenu = (id: string, el: HTMLElement) => {
-    cancelClose()
-    if (dragging) return
-    // Already showing this tool (even pinned/expanded) — leave it be. Hovering a *different* tool
-    // switches to it, dismissing whatever was open (including a pinned/expanded popup).
-    if (menu && menu.id === id) return
-    cancelOpen()
-    openTimer.current = setTimeout(() => { unpinMenu(); openMenuAt(id, el, false) }, 140)
-  }
-  const hoverCloseMenu = () => {
-    cancelOpen()
-    if (pinnedRef.current) return
-    cancelClose()
-    closeTimer.current = setTimeout(() => { if (!pinnedRef.current) setMenu(null) }, 160)
-  }
+  const closeMenu = () => setMenu(null)
 
   // "Reset toolbar" is a press-and-hold: hold the button down and a fill climbs over RESET_HOLD_MS,
   // firing when it completes. Releasing (or leaving the button) early cancels — so a stray click
@@ -377,10 +340,15 @@ export function EditorToolbar({ editor, onOpenFile }: Props) {
   // The master toolbar always shows when nothing's been favorited yet (nothing else to fall back to)
   // or while the bar is engaged; the quick toolbar shows once it has items, or while engaged so it
   // can be dropped into. "Engaged" = hovered, keyboard-focused, or mid-drag.
-  const active = hover || focusWithin || dragging || menu !== null
-  const showMaster = quickIds.length === 0 || active
-  const showQuick = quickIds.length > 0 || active
-  const quickItems = quickIds.map(id => itemsById.get(id)).filter((i): i is ToolItem => i !== undefined)
+  const active = hover || focusWithin || dragging || menu !== null || justReset
+  const quickIsEmpty = quickIds.length === 0
+  const showMaster = quickIsEmpty || active
+  const showQuick = !quickIsEmpty || active
+  // A `rightAligned` tool is pinned to the shell's top-right rather than living inside a row, so it
+  // never appears among the favorites (a stored one from before that change is dropped here).
+  const quickItems = quickIds
+    .map(id => itemsById.get(id))
+    .filter((i): i is ToolItem => i !== undefined && !i.rightAligned)
 
   const renderBtn = (item: ToolItem, origin: DragSource['origin']) => (
     <button
@@ -388,9 +356,7 @@ export function EditorToolbar({ editor, onOpenFile }: Props) {
       data-quick-id={origin === 'quick' ? item.id : undefined}
       className={`toolbar-btn ${item.isActive ? 'toolbar-btn--active' : ''}`}
       onClick={item.action}
-      onMouseEnter={e => hoverOpenMenu(item.id, e.currentTarget)}
-      onMouseLeave={hoverCloseMenu}
-      onContextMenu={e => { e.preventDefault(); cancelOpen(); cancelClose(); pinMenu(); openMenuAt(item.id, e.currentTarget, true) }}
+      onContextMenu={e => { e.preventDefault(); openMenuAt(item.id, e.currentTarget) }}
       disabled={item.disabled}
       type="button"
       draggable={!item.disabled}
@@ -411,17 +377,53 @@ export function EditorToolbar({ editor, onOpenFile }: Props) {
   })
   if (dropIndex === quickItems.length) quickChildren.push(insertMarker('ins-end'))
 
-  // Master row content: every button, with group dividers and a spacer before the right-aligned one.
+  // Master row content: every button with group dividers. The right-aligned tool is skipped — it's
+  // pinned to the shell instead (see exportBtn below), so it stays put whichever row is showing.
   const masterNodes: React.ReactNode[] = []
   let prevGroup: number | null = null
   for (const item of items) {
-    if (item.rightAligned) masterNodes.push(<div className="toolbar-spacer" key={`spacer-${item.id}`} />)
-    else if (prevGroup !== null && item.group !== prevGroup) masterNodes.push(<div className="toolbar-divider" key={`div-${item.id}`} />)
+    if (item.rightAligned) continue
+    if (prevGroup !== null && item.group !== prevGroup) masterNodes.push(<div className="toolbar-divider" key={`div-${item.id}`} />)
     prevGroup = item.group
     masterNodes.push(renderBtn(item, 'master'))
   }
+  const exportItem = items.find(i => i.rightAligned)
 
   const menuItem = menu ? itemsById.get(menu.id) : null
+
+  // Whichever row is on screen at rest stays anchored at the top of the shell, and the row revealed
+  // on hover pops out *beneath* it. That's what keeps a resting button from sliding out from under
+  // the pointer as you reach for it: with nothing favorited the master row holds its place and the
+  // empty quick row drops in below; once tools are favorited the quick row holds its place and the
+  // master row pops out below instead.
+  // The top row is always the one showing at rest, so the export control lives there permanently and
+  // the reset control lives on the lower row — the one that's only revealed on hover. Each row
+  // reserves the right-hand space for whichever of the two sits over it.
+  const masterIsTop = quickIsEmpty
+  const topGap = 'toolbar-row--export-gap'
+  const lowGap = hover ? 'toolbar-row--reset-gap' : ''
+
+  const masterRow = showMaster
+    ? <div key="master" className={`toolbar-row toolbar-row--master ${masterIsTop ? topGap : lowGap}`}>{masterNodes}</div>
+    : null
+  const quickRow = showQuick
+    ? (
+      <div
+        key="quick"
+        className={`toolbar-row toolbar-row--quick ${dropActive ? 'toolbar-row--drop' : ''} ${masterIsTop ? lowGap : topGap}`}
+        onDragOver={onQuickDragOver}
+        onDragLeave={onQuickDragLeave}
+        onDrop={onQuickDrop}
+        aria-label="Quick access toolbar"
+      >
+        {quickItems.length === 0 && !dragging
+          ? <span className="toolbar-quick-hint">Drag tools here for quick access</span>
+          : quickChildren}
+      </div>
+    )
+    : null
+  const rowDivider = showQuick && showMaster ? <div key="divider" className="toolbar-quick-divider" /> : null
+  const toolbarRows = quickIsEmpty ? [masterRow, rowDivider, quickRow] : [quickRow, rowDivider, masterRow]
 
   return (
     <>
@@ -432,23 +434,21 @@ export function EditorToolbar({ editor, onOpenFile }: Props) {
         onFocus={() => setFocusWithin(true)}
         onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setFocusWithin(false) }}
       >
-        {showQuick && (
-          <div
-            className={`toolbar-row toolbar-row--quick ${dropActive ? 'toolbar-row--drop' : ''} ${hover ? 'toolbar-row--reset-gap' : ''}`}
-            onDragOver={onQuickDragOver}
-            onDragLeave={onQuickDragLeave}
-            onDrop={onQuickDrop}
-            aria-label="Quick access toolbar"
+        {toolbarRows}
+
+        {/* Pinned to the shell's top-right, outside the rows, so it's on the visible toolbar
+            whether or not the bar is expanded and whichever row happens to be on top. */}
+        {exportItem && (
+          <button
+            className="toolbar-btn toolbar-export-btn"
+            onClick={exportItem.action}
+            onContextMenu={e => { e.preventDefault(); openMenuAt(exportItem.id, e.currentTarget) }}
+            aria-label={exportItem.label}
+            type="button"
           >
-            {quickItems.length === 0 && !dragging
-              ? <span className="toolbar-quick-hint">Drag tools here for quick access</span>
-              : quickChildren}
-          </div>
+            {exportItem.icon}
+          </button>
         )}
-
-        {showQuick && showMaster && <div className="toolbar-quick-divider" />}
-
-        {showMaster && <div className="toolbar-row toolbar-row--master">{masterNodes}</div>}
 
         {/* Appears on hover, top-right. Requires a brief hover-to-arm before it will fire, so it
             can't be triggered by a careless click — it wipes every quick button and custom key. */}
@@ -481,20 +481,16 @@ export function EditorToolbar({ editor, onOpenFile }: Props) {
         <ShortcutMenu
           key={menu.id}
           toolName={menuItem.label}
-          description={menu.expanded ? TOOL_DESCRIPTIONS[menu.id] : undefined}
+          description={TOOL_DESCRIPTIONS[menu.id]}
           x={menu.x}
           y={menu.y}
           shortcut={effectiveShortcut(menu.id)}
           hasCustom={!!customShortcuts[menu.id]}
           hasDefault={!!DEFAULT_SHORTCUTS[menu.id]}
           findConflict={s => findConflict(s, menu.id)}
-          onAssign={s => { assignShortcut(menu.id, s); unpinMenu() }}
-          onReset={() => { removeShortcut(menu.id); unpinMenu() }}
+          onAssign={s => assignShortcut(menu.id, s)}
+          onReset={() => removeShortcut(menu.id)}
           onClose={closeMenu}
-          onHoverEnter={cancelClose}
-          onHoverLeave={hoverCloseMenu}
-          onInteract={pinMenu}
-          onExpand={expandMenu}
         />
       )}
     </>

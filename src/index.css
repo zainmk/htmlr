@@ -37,6 +37,14 @@
   --radius: 8px;
   --radius-sm: 6px;
 
+  /* Toolbar geometry. The shell is one row tall at rest and two when hovered; the dock reserves
+     the taller measurement up front so revealing the second row never reflows the note.
+     collapsed = row + 6px padding x2 + 1px border x2.
+     expanded  = collapsed + 6px gap + 3px divider box + 6px gap + row. */
+  --toolbar-row-h: 28px;
+  --toolbar-collapsed-h: calc(var(--toolbar-row-h) + 14px);
+  --toolbar-expanded-h: calc(var(--toolbar-collapsed-h) + var(--toolbar-row-h) + 15px);
+
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
   --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.45);
   --shadow-glow: 0 0 0 1px rgba(255, 255, 255, 0.16), 0 4px 20px rgba(0, 0, 0, 0.5);

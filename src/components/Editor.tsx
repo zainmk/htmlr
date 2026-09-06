@@ -136,7 +136,11 @@ export function Editor({ note, openToken, saveStatus, titleConflict, folderError
 
   return (
     <div className="editor-pane">
-      {editor && <EditorToolbar editor={editor} onOpenFile={onOpenFile} />}
+      {editor && (
+        <div className="toolbar-dock">
+          <EditorToolbar editor={editor} onOpenFile={onOpenFile} />
+        </div>
+      )}
 
       <div className="editor-title-row">
         <input
