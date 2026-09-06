@@ -42,9 +42,11 @@ export default function App() {
   // Esc toggles the sidebar open/closed from anywhere in the app.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // defaultPrevented means a nearer handler (the toolbar's shortcut popup) already used this
-      // Escape to dismiss itself — one press shouldn't also collapse the sidebar behind it.
-      if (e.key === 'Escape' && !e.defaultPrevented) toggleSidebar()
+      // Deliberately NOT guarded on e.defaultPrevented: ProseMirror calls preventDefault() on
+      // Escape whenever the note body has focus, so that check would swallow the toggle in the
+      // one place it's used most. A popup that wants to eat an Escape stops propagation in the
+      // capture phase instead (see ShortcutMenu), which keeps this listener from running at all.
+      if (e.key === 'Escape') toggleSidebar()
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
