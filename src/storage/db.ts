@@ -49,6 +49,23 @@ async function run<T>(store: string, mode: IDBTransactionMode, exec: (store: IDB
   })
 }
 
+/** Asks the browser to exempt this origin's storage from automatic eviction.
+ *
+ *  Matters most in the no-folder fallback: IndexedDB is then the only copy of a note, and Safari
+ *  clears script-writable storage for origins it decides are idle — so notes written on an iPhone
+ *  can simply be deleted out from under the user. Granting is at the browser's discretion (Chromium
+ *  decides from engagement heuristics, Safari leans on the site being installed to the Home Screen),
+ *  and Firefox may prompt, so this is best-effort: never throws, never blocks startup. */
+export async function requestPersistence(): Promise<boolean> {
+  try {
+    if (!navigator.storage?.persist) return false
+    if (await navigator.storage.persisted()) return true
+    return await navigator.storage.persist()
+  } catch {
+    return false // unsupported, or blocked by a storage policy — nothing we can do either way
+  }
+}
+
 export const kvStore = {
   get<T>(key: string): Promise<T | undefined> {
     return run<T | undefined>(KV_STORE, 'readonly', s => s.get(key))

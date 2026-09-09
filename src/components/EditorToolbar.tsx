@@ -7,9 +7,10 @@ import {
   Code, CodeSquare, Quote,
   AlignLeft, AlignCenter, AlignRight,
   Link2, Link2Off, Minus,
-  Undo2, Redo2, ExternalLink, RotateCcw, Check,
+  Undo2, Redo2, ExternalLink, RotateCcw, Check, ChevronDown, ChevronUp,
 } from 'lucide-react'
 import { ShortcutMenu } from './ShortcutMenu'
+import { useMediaQuery, TOUCH_QUERY } from '../hooks/useMediaQuery'
 import {
   DEFAULT_SHORTCUTS, matchesShortcut, shortcutsEqual,
   loadCustomShortcuts, saveCustomShortcuts, type Shortcut,
@@ -93,6 +94,10 @@ export function EditorToolbar({ editor, onOpenFile }: Props) {
   // binding, capture button). It stays up until it's explicitly dismissed, so there's no pinned /
   // condensed distinction left to track.
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null)
+  // Touch has no hover, so the master toolbar needs a control the user can actually press. On a
+  // mouse this stays false and hover drives everything exactly as before.
+  const isTouch = useMediaQuery(TOUCH_QUERY)
+  const [touchExpanded, setTouchExpanded] = useState(false)
   const [holding, setHolding] = useState(false)
   const [justReset, setJustReset] = useState(false)
   const [hover, setHover] = useState(false)
@@ -110,6 +115,11 @@ export function EditorToolbar({ editor, onOpenFile }: Props) {
   const actionsRef = useRef<Record<string, () => void>>({})
   const customRef = useRef(customShortcuts)
   customRef.current = customShortcuts
+  // Long-press is touch's stand-in for right-click. `suppressClick` stops the press that opened the
+  // card from also firing the tool underneath it when the finger lifts.
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const longPressStart = useRef<{ x: number; y: number } | null>(null)
+  const suppressClick = useRef(false)
   const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const resetToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const expandTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -159,6 +169,7 @@ export function EditorToolbar({ editor, onOpenFile }: Props) {
   }, [editor])
 
   useEffect(() => () => {
+    if (longPressTimer.current) clearTimeout(longPressTimer.current)
     if (resetTimer.current) clearTimeout(resetTimer.current)
     if (resetToastTimer.current) clearTimeout(resetToastTimer.current)
     if (expandTimer.current) clearTimeout(expandTimer.current)
@@ -181,11 +192,47 @@ export function EditorToolbar({ editor, onOpenFile }: Props) {
   // affordance: sweeping the pointer across the bar on the way to a button shouldn't throw a card
   // up over the note. Right-clicking a different tool switches to it; otherwise it stays until
   // dismissed by a click outside or Escape.
-  const openMenuAt = (id: string, el: HTMLElement) => {
-    const rect = el.getBoundingClientRect()
-    setMenu({ id, x: rect.left, y: rect.bottom + 6 })
-  }
+  const openMenuAtRect = (id: string, rect: DOMRect) => setMenu({ id, x: rect.left, y: rect.bottom + 6 })
+  const openMenuAt = (id: string, el: HTMLElement) => openMenuAtRect(id, el.getBoundingClientRect())
   const closeMenu = () => setMenu(null)
+
+  const cancelLongPress = () => {
+    if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null }
+    longPressStart.current = null
+  }
+
+  /** Touch/pen equivalent of the right-click that opens a tool's card. Mouse is left alone — it has
+   *  a real context menu — and any meaningful finger movement cancels, so scrolling the toolbar or
+   *  starting a drag doesn't pop a card. */
+  const longPressHandlers = (id: string) => ({
+    onPointerDown: (e: React.PointerEvent<HTMLButtonElement>) => {
+      if (e.pointerType === 'mouse') return
+      // Read the rect now: React clears currentTarget once the handler returns.
+      const rect = e.currentTarget.getBoundingClientRect()
+      cancelLongPress()
+      longPressStart.current = { x: e.clientX, y: e.clientY }
+      longPressTimer.current = setTimeout(() => {
+        suppressClick.current = true
+        openMenuAtRect(id, rect)
+      }, 480)
+    },
+    onPointerMove: (e: React.PointerEvent<HTMLButtonElement>) => {
+      const start = longPressStart.current
+      if (!start) return
+      if (Math.abs(e.clientX - start.x) > 10 || Math.abs(e.clientY - start.y) > 10) cancelLongPress()
+    },
+    onPointerUp: cancelLongPress,
+    onPointerCancel: cancelLongPress,
+  })
+
+  /** Runs a tool unless a long press just opened its card instead. */
+  const runTool = (action: () => void) => {
+    if (suppressClick.current) { suppressClick.current = false; return }
+    action()
+  }
+
+  const toggleQuick = (id: string) =>
+    setQuickIds(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]))
 
   // "Reset toolbar" is a press-and-hold: hold the button down and a fill climbs over RESET_HOLD_MS,
   // firing when it completes. Releasing (or leaving the button) early cancels — so a stray click
@@ -340,7 +387,9 @@ export function EditorToolbar({ editor, onOpenFile }: Props) {
   // The master toolbar always shows when nothing's been favorited yet (nothing else to fall back to)
   // or while the bar is engaged; the quick toolbar shows once it has items, or while engaged so it
   // can be dropped into. "Engaged" = hovered, keyboard-focused, or mid-drag.
-  const active = hover || focusWithin || dragging || menu !== null || justReset
+  const active = hover || focusWithin || dragging || menu !== null || justReset || touchExpanded
+  // "Engaged" for the controls that sit over a row: hover on a mouse, the explicit toggle on touch.
+  const barEngaged = hover || touchExpanded
   const quickIsEmpty = quickIds.length === 0
   const showMaster = quickIsEmpty || active
   const showQuick = !quickIsEmpty || active
@@ -355,8 +404,9 @@ export function EditorToolbar({ editor, onOpenFile }: Props) {
       key={item.id}
       data-quick-id={origin === 'quick' ? item.id : undefined}
       className={`toolbar-btn ${item.isActive ? 'toolbar-btn--active' : ''}`}
-      onClick={item.action}
+      onClick={() => runTool(item.action)}
       onContextMenu={e => { e.preventDefault(); openMenuAt(item.id, e.currentTarget) }}
+      {...longPressHandlers(item.id)}
       disabled={item.disabled}
       type="button"
       draggable={!item.disabled}
@@ -401,7 +451,7 @@ export function EditorToolbar({ editor, onOpenFile }: Props) {
   // reserves the right-hand space for whichever of the two sits over it.
   const masterIsTop = quickIsEmpty
   const topGap = 'toolbar-row--export-gap'
-  const lowGap = hover ? 'toolbar-row--reset-gap' : ''
+  const lowGap = barEngaged ? 'toolbar-row--reset-gap' : ''
 
   const masterRow = showMaster
     ? <div key="master" className={`toolbar-row toolbar-row--master ${masterIsTop ? topGap : lowGap}`}>{masterNodes}</div>
@@ -411,6 +461,7 @@ export function EditorToolbar({ editor, onOpenFile }: Props) {
       <div
         key="quick"
         className={`toolbar-row toolbar-row--quick ${dropActive ? 'toolbar-row--drop' : ''} ${masterIsTop ? lowGap : topGap}`}
+        data-quick-row
         onDragOver={onQuickDragOver}
         onDragLeave={onQuickDragLeave}
         onDrop={onQuickDrop}
@@ -429,30 +480,49 @@ export function EditorToolbar({ editor, onOpenFile }: Props) {
     <>
       <div
         className="toolbar-shell"
-        onMouseEnter={onShellEnter}
-        onMouseLeave={onShellLeave}
+        // Touch browsers synthesise a mouseenter after a tap and never a matching mouseleave, so
+        // `hover` would latch on at the first tap and keep the bar engaged forever — the explicit
+        // toggle would then look broken, because collapsing it changed nothing. Hover means nothing
+        // on touch, so drop these there and let touchExpanded be the only signal.
+        onMouseEnter={isTouch ? undefined : onShellEnter}
+        onMouseLeave={isTouch ? undefined : onShellLeave}
         onFocus={() => setFocusWithin(true)}
         onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setFocusWithin(false) }}
       >
         {toolbarRows}
 
-        {/* Pinned to the shell's top-right, outside the rows, so it's on the visible toolbar
+        {/* Pinned to the shell's top-right, outside the rows, so these sit on the visible toolbar
             whether or not the bar is expanded and whichever row happens to be on top. */}
-        {exportItem && (
-          <button
-            className="toolbar-btn toolbar-export-btn"
-            onClick={exportItem.action}
-            onContextMenu={e => { e.preventDefault(); openMenuAt(exportItem.id, e.currentTarget) }}
-            aria-label={exportItem.label}
-            type="button"
-          >
-            {exportItem.icon}
-          </button>
-        )}
+        <div className="toolbar-pinned">
+          {isTouch && (
+            <button
+              className="toolbar-btn"
+              onClick={() => setTouchExpanded(v => !v)}
+              aria-expanded={touchExpanded}
+              aria-label={touchExpanded ? 'Hide all tools' : 'Show all tools'}
+              type="button"
+            >
+              {touchExpanded ? <ChevronUp size={sz} /> : <ChevronDown size={sz} />}
+            </button>
+          )}
+          {exportItem && (
+            <button
+              className="toolbar-btn toolbar-export-btn"
+              onClick={() => runTool(exportItem.action)}
+              onContextMenu={e => { e.preventDefault(); openMenuAt(exportItem.id, e.currentTarget) }}
+              {...longPressHandlers(exportItem.id)}
+              aria-label={exportItem.label}
+              type="button"
+            >
+              {exportItem.icon}
+            </button>
+          )}
+        </div>
 
-        {/* Appears on hover, top-right. Requires a brief hover-to-arm before it will fire, so it
-            can't be triggered by a careless click — it wipes every quick button and custom key. */}
-        {hover && !dragging && (
+        {/* Appears once the bar is engaged — hovered, or expanded via the touch toggle. Requires a
+            press-and-hold before it fires, so it can't go off by accident: it wipes every quick
+            button and custom key. */}
+        {barEngaged && !dragging && (
           <button
             className={`toolbar-reset-btn ${holding ? 'toolbar-reset-btn--holding' : ''}`}
             onPointerDown={startHold}
@@ -491,6 +561,10 @@ export function EditorToolbar({ editor, onOpenFile }: Props) {
           onAssign={s => assignShortcut(menu.id, s)}
           onReset={() => removeShortcut(menu.id)}
           onClose={closeMenu}
+          // Touch only: it stands in for the drag-and-drop that desktop still has and that doesn't
+          // work on a phone. The right-aligned tool is pinned to the shell, so favouriting is a no-op.
+          inQuick={quickIds.includes(menu.id)}
+          onToggleQuick={!isTouch || menuItem.rightAligned ? undefined : () => toggleQuick(menu.id)}
         />
       )}
     </>

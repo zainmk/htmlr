@@ -65,6 +65,10 @@ html, body {
 
 #root {
   height: 100vh;
+  /* iOS Safari's 100vh is the height with the URL bar hidden, so in a tab the bottom of the app
+     (the status bar) is pushed off-screen. dvh tracks the actually-visible viewport. The vh line
+     above stays as the fallback for browsers that don't know dvh. */
+  height: 100dvh;
   display: flex;
   overflow: hidden;
   background:

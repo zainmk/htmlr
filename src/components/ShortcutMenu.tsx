@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { RotateCcw } from 'lucide-react'
+import { RotateCcw, Star, StarOff } from 'lucide-react'
 import { formatShortcut, shortcutFromEvent, isValidShortcut, type Shortcut } from './shortcuts'
 
 interface Props {
@@ -15,11 +15,16 @@ interface Props {
   onAssign: (s: Shortcut) => void
   onReset: () => void
   onClose: () => void
+  /** Whether this tool is currently on the quick toolbar. */
+  inQuick?: boolean
+  /** Adds/removes the tool from the quick toolbar. Omitted for tools that can't be favourited.
+   *  On touch this is the only route to the quick toolbar at all — dragging doesn't work there. */
+  onToggleQuick?: () => void
 }
 
 const MENU_W = 208
 
-export function ShortcutMenu({ toolName, description, x, y, shortcut, hasCustom, hasDefault, findConflict, onAssign, onReset, onClose }: Props) {
+export function ShortcutMenu({ toolName, description, x, y, shortcut, hasCustom, hasDefault, findConflict, onAssign, onReset, onClose, inQuick, onToggleQuick }: Props) {
   const ref = useRef<HTMLDivElement | null>(null)
   const [recording, setRecording] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -102,6 +107,13 @@ export function ShortcutMenu({ toolName, description, x, y, shortcut, hasCustom,
       </button>
 
       {error && <div className="shortcut-menu-error">{error}</div>}
+
+      {onToggleQuick && (
+        <button className="shortcut-menu-quick" onClick={onToggleQuick} type="button">
+          {inQuick ? <StarOff size={12} /> : <Star size={12} />}
+          {inQuick ? 'Remove from quick access' : 'Add to quick access'}
+        </button>
+      )}
     </div>
   )
 }

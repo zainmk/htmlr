@@ -3,6 +3,7 @@ import { PanelLeftOpen, PanelLeftClose, FolderOpen, RefreshCw } from 'lucide-rea
 import { Analytics } from '@vercel/analytics/react'
 import { useNotes } from './hooks/useNotes'
 import { usePwaInstall } from './hooks/usePwaInstall'
+import { useMediaQuery, MOBILE_QUERY } from './hooks/useMediaQuery'
 import { Sidebar } from './components/Sidebar'
 import { Editor } from './components/Editor'
 import { Welcome } from './components/Welcome'
@@ -21,11 +22,17 @@ export default function App() {
     noteList, activeNote, saveStatus, titleConflict, openToken, folderError,
     chooseDirectory, reconnect, continueWithoutFolder,
     openNote, createNote, updateNote, deleteNote, togglePin, reorderPinned, openNoteFile, retrySave,
+    importNotes,
   } = useNotes()
 
-  const { canInstall, install } = usePwaInstall()
+  const { canInstall, install, iosInstallHint } = usePwaInstall()
+  const isMobile = useMediaQuery(MOBILE_QUERY)
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    // On a phone the sidebar is an overlay drawer, so launching with it open would put the note
+    // list on top of the note: mobile always starts closed and never restores. Desktop — including
+    // a narrowed window — keeps exactly the behaviour it always had.
+    if (window.matchMedia(MOBILE_QUERY).matches) return true
     const stored = localStorage.getItem(SIDEBAR_COLLAPSED_KEY)
     if (stored !== null) return stored === 'true'
     return window.innerWidth < NARROW_VIEWPORT_BREAKPOINT
@@ -34,9 +41,19 @@ export default function App() {
   const toggleSidebar = useCallback(() => {
     setSidebarCollapsed(prev => {
       const next = !prev
-      localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(next))
+      // Matching the initializer: don't persist a drawer that won't be restored anyway.
+      if (!window.matchMedia(MOBILE_QUERY).matches) {
+        localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(next))
+      }
       return next
     })
+  }, [])
+
+  // On a phone the sidebar covers the note rather than sitting beside it, so acting on it should
+  // hand the screen back. Deliberately not persisted: this is a consequence of the drawer layout,
+  // not a preference the user expressed by reaching for the toggle.
+  const closeDrawerOnMobile = useCallback(() => {
+    if (window.matchMedia(MOBILE_QUERY).matches) setSidebarCollapsed(true)
   }, [])
 
   // Esc toggles the sidebar open/closed from anywhere in the app.
@@ -113,6 +130,7 @@ export default function App() {
         status={status}
         folderName={folderName}
         canInstall={canInstall}
+        iosInstallHint={iosInstallHint}
         onChooseDirectory={chooseDirectory}
         onReconnect={reconnect}
         onContinueWithoutFolder={continueWithoutFolder}
@@ -130,13 +148,20 @@ export default function App() {
           folderName={folderName}
           isUsingFolder={isUsingFolder}
           collapsed={sidebarCollapsed}
-          onOpen={openNote}
-          onCreate={createNote}
+          onOpen={id => { openNote(id); closeDrawerOnMobile() }}
+          onCreate={() => { createNote(); closeDrawerOnMobile() }}
           onDelete={deleteNote}
           onTogglePin={togglePin}
           onReorderPinned={reorderPinned}
           onChooseDirectory={chooseDirectory}
+          onImport={importNotes}
         />
+
+        {/* Tap-outside-to-close, the standard drawer gesture. Only mounted while the drawer is
+            actually overlaying something, so it never intercepts clicks on the desktop layout. */}
+        {isMobile && !sidebarCollapsed && (
+          <div className="sidebar-scrim" onClick={toggleSidebar} aria-hidden />
+        )}
 
         <button
           className="sidebar-toggle-btn"

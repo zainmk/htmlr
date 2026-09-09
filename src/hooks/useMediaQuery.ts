@@ -1,0 +1,26 @@
+import { useEffect, useState } from 'react'
+
+/** Phone-shaped *and* touch-driven: the layout changes (drawer, toolbar in flow) apply only here.
+ *  Deliberately not width alone — a desktop window dragged narrow should keep the desktop layout it
+ *  has always had, not turn into a phone UI. */
+export const MOBILE_QUERY = '(max-width: 768px) and (pointer: coarse)'
+
+/** Touch-first input. Every hover-only affordance needs an explicit equivalent under this one. */
+export const TOUCH_QUERY = '(hover: none) and (pointer: coarse)'
+
+/** Re-renders when a media query starts or stops matching, so layout decisions that can't be made
+ *  in CSS alone (which component to render, whether a tap should close the drawer) stay in sync
+ *  with the ones that can. */
+export function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(() => window.matchMedia(query).matches)
+
+  useEffect(() => {
+    const mql = window.matchMedia(query)
+    const onChange = () => setMatches(mql.matches)
+    onChange() // the query may already have changed between first render and this effect
+    mql.addEventListener('change', onChange)
+    return () => mql.removeEventListener('change', onChange)
+  }, [query])
+
+  return matches
+}

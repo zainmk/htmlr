@@ -10,4 +10,9 @@ declare global {
   interface WindowEventMap {
     beforeinstallprompt: BeforeInstallPromptEvent
   }
+
+  /** Non-standard, iOS only: true when the page was launched from a Home Screen icon. */
+  interface Navigator {
+    standalone?: boolean
+  }
 }

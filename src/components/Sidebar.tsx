@@ -1,6 +1,8 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
-import { Plus, FileText, Trash2, FolderOpen, HardDrive, Pin, PinOff } from 'lucide-react'
+import { Plus, FileUp, FileText, Trash2, FolderOpen, HardDrive, Pin, PinOff, ChevronUp, ChevronDown } from 'lucide-react'
 import type { NoteMetadata } from '../types'
+import type { ImportResult } from '../hooks/useNotes'
+import { useMediaQuery, TOUCH_QUERY } from '../hooks/useMediaQuery'
 
 interface Props {
   notes: NoteMetadata[]
@@ -14,6 +16,7 @@ interface Props {
   onTogglePin: (id: string) => void
   onReorderPinned: (orderedIds: string[]) => void
   onChooseDirectory: () => void
+  onImport: (files: File[]) => Promise<ImportResult>
 }
 
 function formatDate(iso: string): string {
@@ -30,9 +33,11 @@ function formatDate(iso: string): string {
 // zero-width (not yet reliably focusable) element in some browsers.
 const SIDEBAR_TRANSITION_MS = 200
 
-export function Sidebar({ notes, activeId, folderName, isUsingFolder, collapsed, onOpen, onCreate, onDelete, onTogglePin, onReorderPinned, onChooseDirectory }: Props) {
+export function Sidebar({ notes, activeId, folderName, isUsingFolder, collapsed, onOpen, onCreate, onDelete, onTogglePin, onReorderPinned, onChooseDirectory, onImport }: Props) {
   const itemRefs = useRef<(HTMLDivElement | null)[]>([])
   const createBtnRef = useRef<HTMLButtonElement | null>(null)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const importStatusTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const wasCollapsed = useRef(collapsed)
   const armedDeleteRef = useRef<HTMLButtonElement | null>(null)
   // Set to the deleted note's index by a keyboard-driven delete, consumed once the list re-renders
@@ -45,8 +50,42 @@ export function Sidebar({ notes, activeId, folderName, isUsingFolder, collapsed,
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [dragOverId, setDragOverId] = useState<string | null>(null)
 
+  // HTML5 drag-and-drop does nothing on an iPhone, so reordering needs a button equivalent there.
+  const isTouch = useMediaQuery(TOUCH_QUERY)
+  const pinnedIds = notes.filter(n => n.pinned).map(n => n.id)
+
+  const movePinned = (id: string, delta: number) => {
+    const from = pinnedIds.indexOf(id)
+    const to = from + delta
+    if (from === -1 || to < 0 || to >= pinnedIds.length) return
+    const reordered = [...pinnedIds]
+    reordered.splice(from, 1)
+    reordered.splice(to, 0, id)
+    onReorderPinned(reordered)
+  }
+
+  // Importing can legitimately do nothing visible — every file already present and current — so it
+  // reports what happened rather than leaving the user wondering whether the picker worked.
+  const [importStatus, setImportStatus] = useState<string | null>(null)
+  useEffect(() => () => { if (importStatusTimer.current) clearTimeout(importStatusTimer.current) }, [])
+
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? [])
+    e.target.value = '' // so picking the same file twice in a row still fires a change event
+    if (files.length === 0) return
+
+    const r = await onImport(files)
+    const parts: string[] = []
+    if (r.added) parts.push(`${r.added} imported`)
+    if (r.updated) parts.push(`${r.updated} updated`)
+    if (r.skipped) parts.push(`${r.skipped} already current`)
+    if (r.failed) parts.push(`${r.failed} unreadable`)
+    setImportStatus(parts.join(' · ') || 'Nothing to import')
+    if (importStatusTimer.current) clearTimeout(importStatusTimer.current)
+    importStatusTimer.current = setTimeout(() => setImportStatus(null), 6000)
+  }
+
   const commitReorder = (targetId: string) => {
-    const pinnedIds = notes.filter(n => n.pinned).map(n => n.id)
     const from = pinnedIds.indexOf(draggingId ?? '')
     const to = pinnedIds.indexOf(targetId)
     if (from !== -1 && to !== -1 && from !== to) {
@@ -161,11 +200,29 @@ export function Sidebar({ notes, activeId, folderName, isUsingFolder, collapsed,
           <img src="/logo.svg" alt="htmlr" className="sidebar-logo" />
         </div>
         <div className="sidebar-header-actions">
+          {/* Touch only: this exists because a phone has no folder to read from, and the desktop
+              header is deliberately left as it was. */}
+          {isTouch && (
+            <button className="icon-btn" onClick={() => fileInputRef.current?.click()} title="Import .html notes">
+              <FileUp size={16} />
+            </button>
+          )}
           <button className="icon-btn" ref={createBtnRef} onClick={onCreate} onKeyDown={handleCreateKeyDown} title="New note">
             <Plus size={18} />
           </button>
+          {/* On iOS this opens the Files app, which is how notes get onto (and off) the phone. */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".html,.htm,text/html"
+            multiple
+            hidden
+            onChange={handleImport}
+          />
         </div>
       </div>
+
+      {importStatus && <div className="sidebar-import-status" role="status">{importStatus}</div>}
 
       <div className="note-list" role="listbox" aria-label="Notes" onKeyDown={handleListKeyDown}>
         {notes.length === 0 && (
@@ -218,6 +275,28 @@ export function Sidebar({ notes, activeId, folderName, isUsingFolder, collapsed,
                 <div className="note-item-meta">
                   <span className="note-item-date">{formatDate(note.updatedAt)}</span>
                   <span className="note-item-actions">
+                    {isTouch && note.pinned && (
+                      <>
+                        <button
+                          className="icon-btn note-item-action"
+                          onClick={e => { e.stopPropagation(); movePinned(note.id, -1) }}
+                          disabled={pinnedIds.indexOf(note.id) === 0}
+                          title="Move up"
+                          aria-label="Move up"
+                        >
+                          <ChevronUp size={13} />
+                        </button>
+                        <button
+                          className="icon-btn note-item-action"
+                          onClick={e => { e.stopPropagation(); movePinned(note.id, 1) }}
+                          disabled={pinnedIds.indexOf(note.id) === pinnedIds.length - 1}
+                          title="Move down"
+                          aria-label="Move down"
+                        >
+                          <ChevronDown size={13} />
+                        </button>
+                      </>
+                    )}
                     <button
                       className="icon-btn note-item-action"
                       onClick={e => {

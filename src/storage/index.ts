@@ -1,5 +1,5 @@
 import type { Note, NoteMetadata } from '../types'
-import { kvStore, notesCache } from './db'
+import { kvStore, notesCache, requestPersistence } from './db'
 import {
   isFileSystemAccessSupported,
   pickDirectory,
@@ -114,7 +114,13 @@ export const storage = {
   async init(): Promise<StorageStatus> {
     if (!isFileSystemAccessSupported()) {
       const isFallback = (await kvStore.get<boolean>(FALLBACK_KEY)) ?? false
-      if (isFallback) await migrateFallbackIds()
+      if (isFallback) {
+        // Only in browser-only mode is IndexedDB the single copy of a note, so only there does
+        // eviction mean data loss and only there is it worth asking. With a folder connected the
+        // cache is just a cache. Fire-and-forget — it must not delay first paint.
+        void requestPersistence()
+        await migrateFallbackIds()
+      }
       return isFallback ? 'fallback' : 'unsupported'
     }
     const saved = await kvStore.get<FileSystemDirectoryHandle>(DIR_HANDLE_KEY)
@@ -170,6 +176,7 @@ export const storage = {
 
   async continueWithoutFolder(): Promise<void> {
     await kvStore.set(FALLBACK_KEY, true)
+    void requestPersistence() // the moment the cache becomes the only copy of anything
   },
 
   getDirectoryName(): string | null {

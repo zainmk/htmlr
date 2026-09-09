@@ -1,9 +1,26 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { storage, type StorageStatus } from '../storage'
-import { renderNoteHtml, filenameFor, slugify } from '../storage/noteFile'
+import { renderNoteHtml, parseNoteHtml, filenameFor, slugify } from '../storage/noteFile'
 import type { Note, NoteMetadata, SaveStatus } from '../types'
 
 export type AppStatus = 'checking' | 'error' | StorageStatus
+
+/** Outcome of an .html import, so the UI can say what actually happened rather than nothing. */
+export interface ImportResult {
+  added: number
+  updated: number
+  skipped: number
+  failed: number
+}
+
+/** True on touch-first devices. A "download" is close to useless on a phone — iOS buries it and
+ *  there's no file manager to aim it at — whereas the share sheet offers Save to Files, AirDrop and
+ *  Mail. Desktop keeps the download it has always had, including desktop Chrome, where
+ *  `canShare({files})` is also true but a share sheet would be a worse answer. */
+function prefersShareSheet(file: File): boolean {
+  if (typeof navigator === 'undefined' || !navigator.canShare?.({ files: [file] })) return false
+  return window.matchMedia('(hover: none) and (pointer: coarse)').matches
+}
 
 // Keep the open note reflected in `?note=<id>`, so it's bookmarkable and back/forward work.
 // This only resolves within the current browser + connected folder — it's not a shareable link.
@@ -317,6 +334,49 @@ export function useNotes() {
     setFolderError(!(await storage.writeNote(activeNote)))
   }, [flushPending, activeNote])
 
+  // Pulls .html files in from wherever the platform's file picker can reach — on iOS that's the
+  // Files app, which is the only way notes get onto the phone without a sync backend.
+  const importNotes = useCallback(async (files: File[]): Promise<ImportResult> => {
+    await flushPending()
+    const result: ImportResult = { added: 0, updated: 0, skipped: 0, failed: 0 }
+    let lastImportedId: string | null = null
+
+    for (const file of files) {
+      try {
+        const parsed = parseNoteHtml(await file.text(), slugify(file.name.replace(/\.html?$/i, '')))
+        if (!parsed) { result.failed++; continue }
+
+        // Identity comes from the title, exactly as it does everywhere else — never the filename,
+        // which the platform mangles ("meeting-notes 2.html") whenever it declines to overwrite.
+        const id = slugify(parsed.title)
+        const existing = await storage.readNote(id)
+        if (existing && new Date(parsed.updatedAt).getTime() <= new Date(existing.updatedAt).getTime()) {
+          result.skipped++ // the copy already here is the same or newer; importing would be a downgrade
+          continue
+        }
+        await storage.writeNote({ ...parsed, id })
+        if (existing) result.updated++
+        else result.added++
+        lastImportedId = id
+      } catch {
+        result.failed++ // unreadable file — keep going through the rest of the selection
+      }
+    }
+
+    const list = await loadNoteList()
+    if (lastImportedId && list.some(n => n.id === lastImportedId)) {
+      const note = await storage.readNote(lastImportedId)
+      if (note) {
+        setActiveNote(note)
+        setSaveStatus('saved')
+        setTitleConflict(false)
+        markNoteOpened()
+        writeNoteIdToUrl(note.id, true)
+      }
+    }
+    return result
+  }, [flushPending, loadNoteList, markNoteOpened])
+
   // Opens the note's real saved file in a new tab. Flushes any pending edit first so the file
   // reflects the latest content — that flush may also resolve a pending rename, so the id it
   // actually got saved under can differ from what the caller passed in. Falls back to a fresh
@@ -326,11 +386,25 @@ export function useNotes() {
     const opened = await storage.openNoteFile(saved.id)
     if (opened) return
 
-    const blob = new Blob([renderNoteHtml(saved)], { type: 'text/html' })
-    const url = URL.createObjectURL(blob)
+    const html = renderNoteHtml(saved)
+    const filename = filenameFor(saved.id)
+
+    const file = new File([html], filename, { type: 'text/html' })
+    if (prefersShareSheet(file)) {
+      try {
+        await navigator.share({ files: [file], title: saved.title || 'Untitled' })
+        return
+      } catch (err) {
+        // Dismissing the sheet is a decision, not a failure — don't fire a download behind it.
+        if (err instanceof DOMException && err.name === 'AbortError') return
+        // Anything else (no handler, permission trouble): fall through to the download below.
+      }
+    }
+
+    const url = URL.createObjectURL(new Blob([html], { type: 'text/html' }))
     const a = document.createElement('a')
     a.href = url
-    a.download = filenameFor(saved.id)
+    a.download = filename
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
@@ -344,5 +418,6 @@ export function useNotes() {
     isUsingFolder: storage.isUsingFolder(),
     chooseDirectory, reconnect, continueWithoutFolder,
     openNote, createNote, updateNote, deleteNote, togglePin, reorderPinned, openNoteFile, retrySave,
+    importNotes,
   }
 }

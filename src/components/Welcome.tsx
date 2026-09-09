@@ -1,10 +1,12 @@
-import { FileText, Lock, Server, FolderUp, FolderOpen, RefreshCw, MonitorDown } from 'lucide-react'
+import { FileText, Lock, Server, FolderUp, FolderOpen, RefreshCw, MonitorDown, Share } from 'lucide-react'
 import type { AppStatus } from '../hooks/useNotes'
+import type { IosInstallHint } from '../hooks/usePwaInstall'
 
 interface Props {
   status: AppStatus
   folderName: string | null
   canInstall: boolean
+  iosInstallHint: IosInstallHint
   onChooseDirectory: () => void
   onReconnect: () => void
   onContinueWithoutFolder: () => void
@@ -38,7 +40,7 @@ const MOVE_FEATURE = {
   body: 'No folder access in this browser, but notes still travel: download any note as a real .html file from the toolbar and move it wherever you like.',
 }
 
-export function Welcome({ status, folderName, canInstall, onChooseDirectory, onReconnect, onContinueWithoutFolder, onInstall }: Props) {
+export function Welcome({ status, folderName, canInstall, iosInstallHint, onChooseDirectory, onReconnect, onContinueWithoutFolder, onInstall }: Props) {
   const features = [...BASE_FEATURES, status === 'unsupported' ? MOVE_FEATURE : SYNC_FEATURE]
 
   return (
@@ -119,7 +121,7 @@ export function Welcome({ status, folderName, canInstall, onChooseDirectory, onR
           </>
         )}
 
-        {canInstall && (
+        {canInstall ? (
           <div className="welcome-install">
             <div>
               <div className="welcome-install-title">Install htmlr as an app</div>
@@ -132,7 +134,29 @@ export function Welcome({ status, folderName, canInstall, onChooseDirectory, onR
               Install
             </button>
           </div>
-        )}
+        ) : iosInstallHint === 'add-to-home' ? (
+          <div className="welcome-install welcome-install--static">
+            <div>
+              <div className="welcome-install-title">Add htmlr to your Home Screen</div>
+              <div className="welcome-install-body">
+                Tap <Share size={13} className="welcome-inline-icon" /> Share, then{' '}
+                <strong>Add to Home Screen</strong>. It runs full-screen, works offline, and iOS gives
+                the installed app more durable storage — a Safari tab's storage can be cleared for you.
+              </div>
+            </div>
+          </div>
+        ) : iosInstallHint === 'open-in-safari' ? (
+          <div className="welcome-install welcome-install--static">
+            <div>
+              <div className="welcome-install-title">Open htmlr in Safari to install it</div>
+              <div className="welcome-install-body">
+                Only Safari can add a web app to the iOS Home Screen, where htmlr runs full-screen,
+                works offline, and gets the more durable storage that keeps your notes from being
+                cleared.
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   )

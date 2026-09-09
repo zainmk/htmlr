@@ -3,6 +3,7 @@
 .app-loading {
   width: 100%;
   height: 100vh;
+  height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -57,6 +58,7 @@
   display: flex;
   width: 100%;
   height: 100vh;
+  height: 100dvh;
   overflow: hidden;
   /* Zero on desktop/non-notched devices — only kicks in for standalone iOS, where there's no
      Safari chrome left to keep content clear of the notch/Dynamic Island/home indicator. */
@@ -90,6 +92,49 @@
 .sidebar--collapsed {
   width: 0;
   border-right: none;
+}
+
+/* ── Mobile: the sidebar becomes an overlay drawer ──
+   At 390px a 240px column leaves the editor about 150px, which is unusable. On a phone the sidebar
+   lifts out of the flex row and slides over the note instead, so the editor always has the full
+   width and the list is a temporary layer you dismiss.
+   Gated on pointer too, not just width: a desktop window dragged narrow keeps the column layout. */
+@media (max-width: 768px) and (pointer: coarse) {
+  .sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 40;
+    width: min(310px, 84vw);
+    box-shadow: var(--shadow-md);
+    /* Slide rather than shrink — animating width reflows the whole list on every frame. */
+    transition: transform 0.22s ease;
+    /* .app's safe-area padding doesn't apply to a fixed element, so repeat it here. */
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+  }
+
+  .sidebar--collapsed {
+    /* Keep the width so the drawer slides out intact instead of collapsing its contents first. */
+    width: min(310px, 84vw);
+    transform: translateX(-100%);
+    border-right: 1px solid var(--border);
+  }
+}
+
+.sidebar-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 35;
+  background: rgba(0, 0, 0, 0.55);
+  animation: sidebar-scrim-in 0.18s ease;
+}
+
+@keyframes sidebar-scrim-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 .sidebar-header {
@@ -142,6 +187,16 @@
   width: 24px;
   height: 24px;
   flex-shrink: 0;
+}
+
+.sidebar-import-status {
+  margin: 0 12px 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-hover);
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.4;
 }
 
 .note-list {
@@ -400,6 +455,22 @@
   right: 0;
 }
 
+/* On a phone the master row wraps to three or four lines — far past the two rows the dock reserves —
+   and the shell then covers the note title completely. There, hand the toolbar back to normal flow
+   so it pushes the note down instead. Reflow is the lesser evil on a phone: the bar is nearly a
+   third of the screen, so reserving its expanded height would waste more than it saves. Desktop,
+   including a narrowed window, keeps the reserved dock. */
+@media (max-width: 768px) and (pointer: coarse) {
+  .toolbar-dock {
+    height: auto;
+  }
+
+  /* Relative rather than static, so the pinned export/reset controls keep their containing block. */
+  .toolbar-shell {
+    position: relative;
+  }
+}
+
 .toolbar-row {
   display: flex;
   align-items: center;
@@ -544,14 +615,55 @@
   100% { opacity: 0; transform: translateY(0); }
 }
 
-/* The export control: pinned to the shell's top-right, over whichever row is currently on top.
-   Sized and styled as an ordinary toolbar button (it is one) — `top: 6px` lines it up exactly with
-   the first row, since the shell's own padding is 6px. */
-.toolbar-export-btn {
+/* Holds the controls pinned to the shell's top-right: the touch-only expand toggle, then export. */
+.toolbar-pinned {
   position: absolute;
   top: 6px;
   right: 6px;
   z-index: 15;
+  display: flex;
+  gap: 2px;
+}
+
+/* Long-pressing a tool opens its card; without these iOS answers the same gesture with its own
+   selection callout on top of ours. */
+.toolbar-btn {
+  -webkit-touch-callout: none;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+}
+
+.shortcut-menu-quick {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  margin-top: 8px;
+  padding: 7px 8px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.shortcut-menu-quick:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+/* The export control: pinned to the shell's top-right, over whichever row is currently on top.
+   Sized and styled as an ordinary toolbar button (it is one) — `top: 6px` lines it up exactly with
+   the first row, since the shell's own padding is 6px. */
+/* Positioning now comes from .toolbar-pinned; this stays as the hook for tests and for the
+   right-hand gap the top row reserves. */
+.toolbar-export-btn {
+  flex-shrink: 0;
 }
 
 .toolbar-quick-hint {
@@ -732,6 +844,52 @@
   background: var(--border);
   margin: 0 5px;
   flex-shrink: 0;
+}
+
+/* ── Touch input ─────────────────────────────────
+   Pointer-coarse rather than a width breakpoint: what matters is the size of the thing doing the
+   pointing, not the screen. 30x28 is comfortable with a mouse and fiddly with a thumb. */
+@media (pointer: coarse) {
+  :root {
+    /* The dock reserves its height from this, so it has to track the taller buttons. */
+    --toolbar-row-h: 38px;
+  }
+
+  /* Two pinned controls up there now (expand + export), both wider. */
+  .toolbar-row--export-gap {
+    padding-right: 90px;
+  }
+
+  .toolbar-btn {
+    width: 40px;
+    height: 38px;
+  }
+
+  .icon-btn {
+    width: 38px;
+    height: 38px;
+  }
+
+  .note-item {
+    padding: 12px 10px 12px 13px;
+  }
+
+  .note-item-action {
+    width: 34px;
+    height: 34px;
+    /* Desktop reveals these on the active/focused row only. With no hover and a drawer that closes
+       as soon as you tap a note, that would leave pin and delete unreachable — so show them all. */
+    opacity: 1;
+  }
+
+  .sidebar-toggle-btn {
+    width: 40px;
+    height: 40px;
+  }
+
+  .save-status-retry {
+    padding: 6px 12px;
+  }
 }
 
 /* ── Editor content area ─────────────────────────── */
@@ -1063,6 +1221,7 @@
 .welcome {
   width: 100%;
   height: 100vh;
+  height: 100dvh;
   overflow-y: auto;
   display: flex;
   /* `safe` keeps the top of the card reachable by scrolling instead of clipped off-screen when
@@ -1195,6 +1354,16 @@
   border: 1px solid var(--border-light);
   border-radius: var(--radius);
   background: rgba(255, 255, 255, 0.03);
+}
+
+/* The iOS variant has no button to sit opposite, so let the text use the full width. */
+.welcome-install--static {
+  display: block;
+}
+
+.welcome-inline-icon {
+  vertical-align: -2px;
+  color: var(--text);
 }
 
 .welcome-install .btn-secondary {
