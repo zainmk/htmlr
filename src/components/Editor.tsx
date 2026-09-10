@@ -24,7 +24,9 @@ interface Props {
   folderName: string | null
   sidebarCollapsed: boolean
   onTitleChange: (title: string) => void
-  onContentChange: (content: string) => void
+  /** Called with a getter rather than the content itself, so the caller decides when to pay for
+   *  serialising the document. Returns null if the editor is gone — meaning "nothing to apply". */
+  onContentChange: (getContent: () => string | null) => void
   onOpenFile: () => void
   onRetrySave: () => void
 }
@@ -93,7 +95,10 @@ export function Editor({ note, openToken, saveStatus, titleConflict, folderError
     extensions,
     content: note.content,
     onUpdate: ({ editor }) => {
-      onContentChange(editor.getHTML())
+      // Hands up a *getter*, not the HTML. Serialising the document is O(its size), and pasted
+      // images sit in it as base64 — so doing it here would re-serialise megabytes on every
+      // keystroke. The save is already debounced; this lets the serialisation be debounced with it.
+      onContentChange(() => (editor.isDestroyed ? null : editor.getHTML()))
     },
     editorProps: {
       attributes: { class: 'prose-editor' },

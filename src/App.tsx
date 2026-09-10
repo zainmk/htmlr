@@ -23,7 +23,7 @@ export default function App() {
     status, folderName, isUsingFolder,
     noteList, activeNote, saveStatus, titleConflict, openToken, folderError,
     chooseDirectory, reconnect, continueWithoutFolder,
-    openNote, createNote, updateNote, deleteNote, togglePin, reorderPinned, openNoteFile, retrySave,
+    openNote, createNote, updateTitle, updateContent, deleteNote, togglePin, reorderPinned, openNoteFile, retrySave,
     importNotes,
   } = useNotes()
 
@@ -184,8 +184,8 @@ export default function App() {
               folderError={folderError}
               folderName={folderName}
               sidebarCollapsed={sidebarCollapsed}
-              onTitleChange={title => updateNote({ title }, activeNote)}
-              onContentChange={content => updateNote({ content }, activeNote)}
+              onTitleChange={title => updateTitle(title, activeNote)}
+              onContentChange={updateContent}
               onOpenFile={() => openNoteFile(activeNote)}
               onRetrySave={retrySave}
             />

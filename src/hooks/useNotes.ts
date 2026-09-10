@@ -68,8 +68,27 @@ export function useNotes() {
   // switching notes always reloads the body and a rename never does.
   const [openToken, setOpenToken] = useState(0)
 
+  /** Quiet period after the last edit before a save. */
+  const SAVE_DEBOUNCE_MS = 800
+  /** Ceiling on how long an edit can sit unsaved. A trailing debounce on its own never fires while
+   *  you keep typing, so a long uninterrupted burst would stay unwritten indefinitely. */
+  const SAVE_MAX_WAIT_MS = 5_000
+
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const maxWaitTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /** Title/metadata edits, which are cheap to carry around. Content is deliberately not in here. */
   const pendingNote = useRef<Note | null>(null)
+  /** Pulls the body out of the editor, and only when we're actually about to save.
+   *
+   *  Serialising a ProseMirror document is O(document size), and pasted images live in the document
+   *  as base64 — so calling it per keystroke meant re-serialising several megabytes on every
+   *  character. Storing the *getter* defers that to the debounced flush: one serialisation per save
+   *  rather than one per keypress. Returns null if the editor has gone away, which means "no content
+   *  change to apply" rather than "the note is now empty". */
+  const pendingContent = useRef<(() => string | null) | null>(null)
+  // Lets the flush reach the current note without being re-created (and re-scheduled) on every edit.
+  const activeNoteRef = useRef<Note | null>(null)
+  activeNoteRef.current = activeNote
 
   const markNoteOpened = useCallback(() => setOpenToken(t => t + 1), [])
 
@@ -97,14 +116,26 @@ export function useNotes() {
   // Commits whatever edit is pending (if any) right now instead of waiting for the debounce, and
   // returns the note as actually saved — its id may differ from what the caller last saw if this
   // commit happened to also resolve a pending rename.
+  const clearSaveTimers = () => {
+    if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null }
+    if (maxWaitTimer.current) { clearTimeout(maxWaitTimer.current); maxWaitTimer.current = null }
+  }
+
   const flushPending = useCallback(async (): Promise<Note | null> => {
-    if (saveTimer.current) {
-      clearTimeout(saveTimer.current)
-      saveTimer.current = null
-    }
-    const note = pendingNote.current
-    if (!note) return null
+    clearSaveTimers()
+
+    const getContent = pendingContent.current
+    // A content edit has no pending note of its own — the base is whatever's open.
+    const base = pendingNote.current ?? (getContent ? activeNoteRef.current : null)
+    if (!base) return null
     pendingNote.current = null
+    pendingContent.current = null
+
+    // The one place the document gets serialised.
+    const content = getContent?.() ?? null
+    const note: Note = content === null
+      ? base
+      : { ...base, content, updatedAt: new Date().toISOString() }
 
     const { note: saved, conflict, folderOk } = await commitNote(note)
     setTitleConflict(conflict)
@@ -229,32 +260,44 @@ export function useNotes() {
     writeNoteIdToUrl(note.id, true)
   }, [flushPending, loadNoteList, markNoteOpened])
 
-  const updateNote = useCallback(
-    (patch: Partial<Pick<Note, 'title' | 'content'>>, currentNote: Note) => {
-      const updated: Note = { ...currentNote, ...patch, updatedAt: new Date().toISOString() }
-      setActiveNote(updated)
-      setSaveStatus('unsaved')
-      if (patch.title !== undefined) setTitleConflict(false)
-      pendingNote.current = updated
+  const scheduleFlush = useCallback(() => {
+    if (saveTimer.current) clearTimeout(saveTimer.current)
+    saveTimer.current = setTimeout(() => { void flushPending() }, SAVE_DEBOUNCE_MS)
+    // Started once per burst and not reset by later edits, so continuous typing still saves.
+    if (!maxWaitTimer.current) {
+      maxWaitTimer.current = setTimeout(() => { void flushPending() }, SAVE_MAX_WAIT_MS)
+    }
+  }, [flushPending])
 
-      if (saveTimer.current) clearTimeout(saveTimer.current)
-      saveTimer.current = setTimeout(() => {
-        flushPending()
-      }, 800)
-    },
-    [flushPending],
-  )
+  // The body changed. All this records is *how* to get it — see pendingContent. `saveStatus` is
+  // already 'unsaved' after the first keystroke of a burst, so React bails out of re-rendering for
+  // the rest of it, and a content edit costs nothing beyond scheduling.
+  const updateContent = useCallback((getContent: () => string | null) => {
+    pendingContent.current = getContent
+    setSaveStatus('unsaved')
+    scheduleFlush()
+  }, [scheduleFlush])
+
+  // The title is a controlled input, so unlike the body it does have to update state per keystroke.
+  // It's a short string, so that's cheap.
+  const updateTitle = useCallback((title: string, currentNote: Note) => {
+    const updated: Note = { ...currentNote, title, updatedAt: new Date().toISOString() }
+    setActiveNote(updated)
+    setSaveStatus('unsaved')
+    setTitleConflict(false)
+    pendingNote.current = updated
+    scheduleFlush()
+  }, [scheduleFlush])
 
   const deleteNote = useCallback(
     async (id: string) => {
       // A pending edit on the note being deleted dies with it; a pending edit on any *other*
       // note must be committed, not discarded.
-      if (pendingNote.current?.id === id) {
-        if (saveTimer.current) {
-          clearTimeout(saveTimer.current)
-          saveTimer.current = null
-        }
+      const pendingId = pendingNote.current?.id ?? (pendingContent.current ? activeNoteRef.current?.id : undefined)
+      if (pendingId === id) {
+        clearSaveTimers()
         pendingNote.current = null
+        pendingContent.current = null
       } else {
         await flushPending()
       }
@@ -417,7 +460,7 @@ export function useNotes() {
     status, folderName, noteList, activeNote, saveStatus, titleConflict, openToken, folderError,
     isUsingFolder: storage.isUsingFolder(),
     chooseDirectory, reconnect, continueWithoutFolder,
-    openNote, createNote, updateNote, deleteNote, togglePin, reorderPinned, openNoteFile, retrySave,
+    openNote, createNote, updateTitle, updateContent, deleteNote, togglePin, reorderPinned, openNoteFile, retrySave,
     importNotes,
   }
 }
