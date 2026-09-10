@@ -39,10 +39,8 @@ export function renderNoteHtml(note: Note): string {
   const displayTitle = escapeHtml(note.title || 'Untitled')
   const pinnedAttr = note.pinned ? ' data-htmlr-pinned="true"' : ''
   const pinOrderAttr = note.pinned && note.pinnedOrder != null ? ` data-htmlr-pin-order="${note.pinnedOrder}"` : ''
-  // Carried in the file like pin state, so publish status travels with the note if the folder moves.
-  const publishedAttr = note.publishedAt ? ` data-htmlr-published="${note.publishedAt}"` : ''
   return `<!DOCTYPE html>
-<html lang="en" data-htmlr-title="${escapeHtml(note.title)}" data-htmlr-created="${note.createdAt}" data-htmlr-updated="${note.updatedAt}"${pinnedAttr}${pinOrderAttr}${publishedAttr}>
+<html lang="en" data-htmlr-title="${escapeHtml(note.title)}" data-htmlr-created="${note.createdAt}" data-htmlr-updated="${note.updatedAt}"${pinnedAttr}${pinOrderAttr}>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -83,7 +81,5 @@ export function parseNoteHtml(html: string, id: string): Note | null {
     const order = root.getAttribute('data-htmlr-pin-order')
     if (order != null && order !== '') note.pinnedOrder = Number(order)
   }
-  const published = root.getAttribute('data-htmlr-published')
-  if (published) note.publishedAt = published
   return note
 }

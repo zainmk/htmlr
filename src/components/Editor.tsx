@@ -22,13 +22,6 @@ interface Props {
   /** A folder is connected but the last write didn't reach it — the note lives only in the cache. */
   folderError: boolean
   folderName: string | null
-  /** Publishing wiring for this note; null when it isn't published or publishing isn't available. */
-  publish: {
-    baseUrl: string
-    onSaveBaseUrl: (url: string) => void
-    onUpdate: () => void
-    onUnpublish: () => void
-  } | null
   sidebarCollapsed: boolean
   onTitleChange: (title: string) => void
   onContentChange: (content: string) => void
@@ -88,7 +81,7 @@ function handleImagePaste(view: EditorView, event: ClipboardEvent): boolean {
   return true
 }
 
-export function Editor({ note, openToken, saveStatus, titleConflict, folderError, folderName, publish, sidebarCollapsed, onTitleChange, onContentChange, onOpenFile, onRetrySave }: Props) {
+export function Editor({ note, openToken, saveStatus, titleConflict, folderError, folderName, sidebarCollapsed, onTitleChange, onContentChange, onOpenFile, onRetrySave }: Props) {
   // Which note the editor's document currently holds. Tracked by openToken rather than by any
   // field of the note: note.id changes on rename (a rename isn't a note switch), and note.createdAt
   // is not unique — files copied into the folder without a data-htmlr-created attribute are all
@@ -145,13 +138,7 @@ export function Editor({ note, openToken, saveStatus, titleConflict, folderError
     <div className="editor-pane">
       {editor && (
         <div className="toolbar-dock">
-          <EditorToolbar
-            editor={editor}
-            onOpenFile={onOpenFile}
-            publish={publish && note.publishedAt
-              ? { noteId: note.id, publishedAt: note.publishedAt, updatedAt: note.updatedAt, ...publish }
-              : null}
-          />
+          <EditorToolbar editor={editor} onOpenFile={onOpenFile} />
         </div>
       )}
 
