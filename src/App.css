@@ -100,7 +100,7 @@
    lifts out of the flex row and slides over the note instead, so the editor always has the full
    width and the list is a temporary layer you dismiss.
    Gated on pointer too, not just width: a desktop window dragged narrow keeps the column layout. */
-@media (max-width: 768px) and (pointer: coarse) {
+@media (max-width: 768px) and (any-hover: none) and (pointer: coarse) {
   .sidebar {
     position: fixed;
     top: 0;
@@ -840,9 +840,10 @@
 }
 
 /* ── Touch input ─────────────────────────────────
-   Pointer-coarse rather than a width breakpoint: what matters is the size of the thing doing the
-   pointing, not the screen. 30x28 is comfortable with a mouse and fiddly with a thumb. */
-@media (pointer: coarse) {
+   Pointer type rather than a width breakpoint: what matters is the size of the thing doing the
+   pointing, not the screen. 30x28 is comfortable with a mouse and fiddly with a thumb. `any-hover`
+   keeps a touchscreen laptop — which has a trackpad — on the compact desktop sizes. */
+@media (any-hover: none) and (pointer: coarse) {
   :root {
     /* The dock reserves its height from this, so it has to track the taller buttons. */
     --toolbar-row-h: 38px;
@@ -894,7 +895,7 @@
    so it pushes the note down instead. Reflow is the lesser evil on a phone: the bar is nearly a
    third of the screen, so reserving its expanded height would waste more than it saves. Desktop,
    including a narrowed window, keeps the reserved dock. */
-@media (max-width: 768px) and (pointer: coarse) {
+@media (max-width: 768px) and (any-hover: none) and (pointer: coarse) {
   .toolbar-dock {
     height: auto;
   }

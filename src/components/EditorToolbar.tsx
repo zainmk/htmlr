@@ -504,7 +504,13 @@ export function EditorToolbar({ editor, onOpenFile }: Props) {
           {isTouch && (
             <button
               className="toolbar-btn"
-              onClick={() => setTouchExpanded(v => !v)}
+              onClick={e => {
+                // Blur on collapse: clicking the toggle focuses it, and `focusWithin` counts toward
+                // `active` — so without this the bar stays open after you press close, until focus
+                // happens to move somewhere else entirely.
+                if (touchExpanded) e.currentTarget.blur()
+                setTouchExpanded(v => !v)
+              }}
               aria-expanded={touchExpanded}
               aria-label={touchExpanded ? 'Hide all tools' : 'Show all tools'}
               type="button"
