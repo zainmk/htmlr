@@ -10,7 +10,7 @@ import {
   Undo2, Redo2, ExternalLink, RotateCcw, Check, ChevronDown, ChevronUp,
 } from 'lucide-react'
 import { ShortcutMenu } from './ShortcutMenu'
-import { useMediaQuery, TOUCH_QUERY } from '../hooks/useMediaQuery'
+import { usePlatform } from '../hooks/usePlatform'
 import {
   DEFAULT_SHORTCUTS, matchesShortcut, shortcutsEqual,
   loadCustomShortcuts, saveCustomShortcuts, type Shortcut,
@@ -96,7 +96,8 @@ export function EditorToolbar({ editor, onOpenFile }: Props) {
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null)
   // Touch has no hover, so the master toolbar needs a control the user can actually press. On a
   // mouse this stays false and hover drives everything exactly as before.
-  const isTouch = useMediaQuery(TOUCH_QUERY)
+  const platform = usePlatform()
+  const isTouch = platform.pointer === 'touch'
   const [touchExpanded, setTouchExpanded] = useState(false)
   const [holding, setHolding] = useState(false)
   const [justReset, setJustReset] = useState(false)
@@ -468,7 +469,13 @@ export function EditorToolbar({ editor, onOpenFile }: Props) {
         aria-label="Quick access toolbar"
       >
         {quickItems.length === 0 && !dragging
-          ? <span className="toolbar-quick-hint">Drag tools here for quick access</span>
+          ? (
+            <span className="toolbar-quick-hint">
+              {platform.canDragToReorder
+                ? 'Drag tools here for quick access'
+                : 'Press and hold a tool to add it here'}
+            </span>
+          )
           : quickChildren}
       </div>
     )
@@ -561,10 +568,11 @@ export function EditorToolbar({ editor, onOpenFile }: Props) {
           onAssign={s => assignShortcut(menu.id, s)}
           onReset={() => removeShortcut(menu.id)}
           onClose={closeMenu}
-          // Touch only: it stands in for the drag-and-drop that desktop still has and that doesn't
-          // work on a phone. The right-aligned tool is pinned to the shell, so favouriting is a no-op.
+          canAssignShortcuts={platform.canAssignShortcuts}
+          // Stands in for the drag-and-drop that only works where dragging does. The right-aligned
+          // tool is pinned to the shell permanently, so favouriting it is a no-op.
           inQuick={quickIds.includes(menu.id)}
-          onToggleQuick={!isTouch || menuItem.rightAligned ? undefined : () => toggleQuick(menu.id)}
+          onToggleQuick={platform.canDragToReorder || menuItem.rightAligned ? undefined : () => toggleQuick(menu.id)}
         />
       )}
     </>

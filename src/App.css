@@ -59,6 +59,7 @@
   width: 100%;
   height: 100vh;
   height: 100dvh;
+  height: var(--app-height, 100dvh);
   overflow: hidden;
   /* Zero on desktop/non-notched devices — only kicks in for standalone iOS, where there's no
      Safari chrome left to keep content clear of the notch/Dynamic Island/home indicator. */
@@ -455,21 +456,7 @@
   right: 0;
 }
 
-/* On a phone the master row wraps to three or four lines — far past the two rows the dock reserves —
-   and the shell then covers the note title completely. There, hand the toolbar back to normal flow
-   so it pushes the note down instead. Reflow is the lesser evil on a phone: the bar is nearly a
-   third of the screen, so reserving its expanded height would waste more than it saves. Desktop,
-   including a narrowed window, keeps the reserved dock. */
-@media (max-width: 768px) and (pointer: coarse) {
-  .toolbar-dock {
-    height: auto;
-  }
 
-  /* Relative rather than static, so the pinned export/reset controls keep their containing block. */
-  .toolbar-shell {
-    position: relative;
-  }
-}
 
 .toolbar-row {
   display: flex;
@@ -892,10 +879,59 @@
   }
 }
 
+/* NOTE: platform overrides live here, after every base rule they override. A media query
+   adds no specificity, so a block sitting above `.toolbar-row` or `.toolbar-btn` silently
+   loses to them on source order. Keep new ones in this section. */
+
+/* On a phone the master row wraps to three or four lines — far past the two rows the dock reserves —
+   and the shell then covers the note title completely. There, hand the toolbar back to normal flow
+   so it pushes the note down instead. Reflow is the lesser evil on a phone: the bar is nearly a
+   third of the screen, so reserving its expanded height would waste more than it saves. Desktop,
+   including a narrowed window, keeps the reserved dock. */
+@media (max-width: 768px) and (pointer: coarse) {
+  .toolbar-dock {
+    height: auto;
+  }
+
+  /* Relative rather than static, so the pinned export/reset controls keep their containing block. */
+  .toolbar-shell {
+    position: relative;
+  }
+
+  /* 22 finger-sized buttons wrap to four rows on a phone — 208px of a 380px viewport once the
+     keyboard is up, which left the note with nothing but padding. One row that scrolls sideways
+     instead: every tool still reachable, and the bar costs ~50px rather than a third of the screen. */
+  .toolbar-row--master {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .toolbar-row--master::-webkit-scrollbar {
+    display: none;
+  }
+
+  .toolbar-btn {
+    flex-shrink: 0;
+  }
+
+  /* The pinned controls sit over the row's right end, so scrolled tools would slide under them.
+     Give them a backdrop that occludes cleanly, faded on the left so it doesn't read as a hard edge. */
+  .toolbar-pinned {
+    background: var(--bg);
+    border-radius: var(--radius-sm);
+    box-shadow: -10px 0 10px -5px var(--bg);
+  }
+}
+
 /* ── Editor content area ─────────────────────────── */
 
 .editor-scroll {
   flex: 1;
+  /* Without this a flex item won't shrink below its content (min-height defaults to auto), so when
+     the shell shrinks — the software keyboard opening — this pushes the status bar off the bottom
+     instead of scrolling. It's the scrolling region, so it's the one that should give. */
+  min-height: 0;
   overflow-y: auto;
   padding: 24px 44px 40px;
 }

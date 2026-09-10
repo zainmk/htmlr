@@ -69,6 +69,9 @@ html, body {
      (the status bar) is pushed off-screen. dvh tracks the actually-visible viewport. The vh line
      above stays as the fallback for browsers that don't know dvh. */
   height: 100dvh;
+  /* Set only on touch devices (see useViewportHeight): the space left above the software keyboard,
+     which dvh does not account for. Falls back to dvh everywhere else. */
+  height: var(--app-height, 100dvh);
   display: flex;
   overflow: hidden;
   background:

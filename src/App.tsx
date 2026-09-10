@@ -3,7 +3,9 @@ import { PanelLeftOpen, PanelLeftClose, FolderOpen, RefreshCw } from 'lucide-rea
 import { Analytics } from '@vercel/analytics/react'
 import { useNotes } from './hooks/useNotes'
 import { usePwaInstall } from './hooks/usePwaInstall'
-import { useMediaQuery, MOBILE_QUERY } from './hooks/useMediaQuery'
+import { MOBILE_QUERY } from './hooks/useMediaQuery'
+import { usePlatform } from './hooks/usePlatform'
+import { useViewportHeight } from './hooks/useViewportHeight'
 import { Sidebar } from './components/Sidebar'
 import { Editor } from './components/Editor'
 import { Welcome } from './components/Welcome'
@@ -26,7 +28,10 @@ export default function App() {
   } = useNotes()
 
   const { canInstall, install, iosInstallHint } = usePwaInstall()
-  const isMobile = useMediaQuery(MOBILE_QUERY)
+  const platform = usePlatform()
+  const isDrawer = platform.layout === 'drawer'
+  // Only where there's a software keyboard to make room for.
+  useViewportHeight(platform.pointer === 'touch')
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     // On a phone the sidebar is an overlay drawer, so launching with it open would put the note
@@ -42,19 +47,17 @@ export default function App() {
     setSidebarCollapsed(prev => {
       const next = !prev
       // Matching the initializer: don't persist a drawer that won't be restored anyway.
-      if (!window.matchMedia(MOBILE_QUERY).matches) {
-        localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(next))
-      }
+      if (!isDrawer) localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(next))
       return next
     })
-  }, [])
+  }, [isDrawer])
 
   // On a phone the sidebar covers the note rather than sitting beside it, so acting on it should
   // hand the screen back. Deliberately not persisted: this is a consequence of the drawer layout,
   // not a preference the user expressed by reaching for the toggle.
   const closeDrawerOnMobile = useCallback(() => {
-    if (window.matchMedia(MOBILE_QUERY).matches) setSidebarCollapsed(true)
-  }, [])
+    if (isDrawer) setSidebarCollapsed(true)
+  }, [isDrawer])
 
   // Esc toggles the sidebar open/closed from anywhere in the app.
   useEffect(() => {
@@ -159,7 +162,7 @@ export default function App() {
 
         {/* Tap-outside-to-close, the standard drawer gesture. Only mounted while the drawer is
             actually overlaying something, so it never intercepts clicks on the desktop layout. */}
-        {isMobile && !sidebarCollapsed && (
+        {isDrawer && !sidebarCollapsed && (
           <div className="sidebar-scrim" onClick={toggleSidebar} aria-hidden />
         )}
 

@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { storage, type StorageStatus } from '../storage'
+import { usePlatform } from './usePlatform'
 import { renderNoteHtml, parseNoteHtml, filenameFor, slugify } from '../storage/noteFile'
 import type { Note, NoteMetadata, SaveStatus } from '../types'
 
@@ -13,13 +14,11 @@ export interface ImportResult {
   failed: number
 }
 
-/** True on touch-first devices. A "download" is close to useless on a phone — iOS buries it and
- *  there's no file manager to aim it at — whereas the share sheet offers Save to Files, AirDrop and
- *  Mail. Desktop keeps the download it has always had, including desktop Chrome, where
- *  `canShare({files})` is also true but a share sheet would be a worse answer. */
-function prefersShareSheet(file: File): boolean {
-  if (typeof navigator === 'undefined' || !navigator.canShare?.({ files: [file] })) return false
-  return window.matchMedia('(hover: none) and (pointer: coarse)').matches
+/** Whether the share sheet can actually take this file. The *preference* comes from the platform
+ *  (a download is close to useless on a phone; a share sheet is a worse answer on a desktop); this
+ *  is the feature check that has to see the real File. */
+function canShareFile(file: File): boolean {
+  return typeof navigator !== 'undefined' && !!navigator.canShare?.({ files: [file] })
 }
 
 // Keep the open note reflected in `?note=<id>`, so it's bookmarkable and back/forward work.
@@ -53,6 +52,7 @@ async function uniqueUntitled(): Promise<{ id: string; title: string }> {
 }
 
 export function useNotes() {
+  const platform = usePlatform()
   const [status, setStatus] = useState<AppStatus>('checking')
   const [folderName, setFolderName] = useState<string | null>(null)
   const [noteList, setNoteList] = useState<NoteMetadata[]>([])
@@ -390,7 +390,7 @@ export function useNotes() {
     const filename = filenameFor(saved.id)
 
     const file = new File([html], filename, { type: 'text/html' })
-    if (prefersShareSheet(file)) {
+    if (platform.prefersShareSheet && canShareFile(file)) {
       try {
         await navigator.share({ files: [file], title: saved.title || 'Untitled' })
         return
@@ -411,7 +411,7 @@ export function useNotes() {
     // Revoking straight after click() can cancel the download before the browser has read the
     // blob — this fallback path is exactly the browsers (Firefox, Safari, iOS) where that bites.
     setTimeout(() => URL.revokeObjectURL(url), 30_000)
-  }, [flushPending])
+  }, [flushPending, platform.prefersShareSheet])
 
   return {
     status, folderName, noteList, activeNote, saveStatus, titleConflict, openToken, folderError,

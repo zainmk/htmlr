@@ -2,7 +2,7 @@ import { Fragment, useEffect, useRef, useState } from 'react'
 import { Plus, FileUp, FileText, Trash2, FolderOpen, HardDrive, Pin, PinOff, ChevronUp, ChevronDown } from 'lucide-react'
 import type { NoteMetadata } from '../types'
 import type { ImportResult } from '../hooks/useNotes'
-import { useMediaQuery, TOUCH_QUERY } from '../hooks/useMediaQuery'
+import { usePlatform } from '../hooks/usePlatform'
 
 interface Props {
   notes: NoteMetadata[]
@@ -50,8 +50,7 @@ export function Sidebar({ notes, activeId, folderName, isUsingFolder, collapsed,
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [dragOverId, setDragOverId] = useState<string | null>(null)
 
-  // HTML5 drag-and-drop does nothing on an iPhone, so reordering needs a button equivalent there.
-  const isTouch = useMediaQuery(TOUCH_QUERY)
+  const platform = usePlatform()
   const pinnedIds = notes.filter(n => n.pinned).map(n => n.id)
 
   const movePinned = (id: string, delta: number) => {
@@ -200,9 +199,8 @@ export function Sidebar({ notes, activeId, folderName, isUsingFolder, collapsed,
           <img src="/logo.svg" alt="htmlr" className="sidebar-logo" />
         </div>
         <div className="sidebar-header-actions">
-          {/* Touch only: this exists because a phone has no folder to read from, and the desktop
-              header is deliberately left as it was. */}
-          {isTouch && (
+          {/* Only where there's no folder to read from; the desktop header is left as it was. */}
+          {platform.canImportFiles && (
             <button className="icon-btn" onClick={() => fileInputRef.current?.click()} title="Import .html notes">
               <FileUp size={16} />
             </button>
@@ -248,7 +246,7 @@ export function Sidebar({ notes, activeId, folderName, isUsingFolder, collapsed,
                 role="option"
                 aria-selected={note.id === activeId}
                 tabIndex={note.id === activeId ? 0 : -1}
-                draggable={note.pinned}
+                draggable={note.pinned && platform.canDragToReorder}
                 onDragStart={note.pinned ? e => {
                   setDraggingId(note.id)
                   e.dataTransfer.effectAllowed = 'move'
@@ -275,7 +273,8 @@ export function Sidebar({ notes, activeId, folderName, isUsingFolder, collapsed,
                 <div className="note-item-meta">
                   <span className="note-item-date">{formatDate(note.updatedAt)}</span>
                   <span className="note-item-actions">
-                    {isTouch && note.pinned && (
+                    {/* Button route for reordering wherever dragging doesn't work. */}
+                    {!platform.canDragToReorder && note.pinned && (
                       <>
                         <button
                           className="icon-btn note-item-action"

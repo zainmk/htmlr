@@ -15,6 +15,8 @@ interface Props {
   onAssign: (s: Shortcut) => void
   onReset: () => void
   onClose: () => void
+  /** Without a keyboard there is nothing to press, so the whole shortcut section is hidden. */
+  canAssignShortcuts: boolean
   /** Whether this tool is currently on the quick toolbar. */
   inQuick?: boolean
   /** Adds/removes the tool from the quick toolbar. Omitted for tools that can't be favourited.
@@ -24,7 +26,7 @@ interface Props {
 
 const MENU_W = 208
 
-export function ShortcutMenu({ toolName, description, x, y, shortcut, hasCustom, hasDefault, findConflict, onAssign, onReset, onClose, inQuick, onToggleQuick }: Props) {
+export function ShortcutMenu({ toolName, description, x, y, shortcut, hasCustom, hasDefault, findConflict, onAssign, onReset, onClose, canAssignShortcuts, inQuick, onToggleQuick }: Props) {
   const ref = useRef<HTMLDivElement | null>(null)
   const [recording, setRecording] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -51,7 +53,7 @@ export function ShortcutMenu({ toolName, description, x, y, shortcut, hasCustom,
 
   // While recording, capture the next real key combo and validate it.
   useEffect(() => {
-    if (!recording) return
+    if (!recording || !canAssignShortcuts) return
     const onKey = (e: KeyboardEvent) => {
       e.preventDefault()
       e.stopPropagation()
@@ -67,7 +69,7 @@ export function ShortcutMenu({ toolName, description, x, y, shortcut, hasCustom,
     }
     document.addEventListener('keydown', onKey, true)
     return () => document.removeEventListener('keydown', onKey, true)
-  }, [recording, findConflict, onAssign])
+  }, [recording, canAssignShortcuts, findConflict, onAssign])
 
   const left = Math.min(x, window.innerWidth - MENU_W - 8)
   const top = Math.min(y, window.innerHeight - 120)
@@ -84,7 +86,7 @@ export function ShortcutMenu({ toolName, description, x, y, shortcut, hasCustom,
     >
       <div className="shortcut-menu-header">
         <span className="shortcut-menu-title">{toolName}</span>
-        {hasCustom && (
+        {hasCustom && canAssignShortcuts && (
           <button
             className="shortcut-menu-reset-btn"
             onClick={() => { onReset(); setError(null) }}
@@ -98,15 +100,17 @@ export function ShortcutMenu({ toolName, description, x, y, shortcut, hasCustom,
 
       {description && <p className="shortcut-menu-desc">{description}</p>}
 
-      <button className="shortcut-menu-capture" onClick={() => { setError(null); setRecording(true) }}>
-        {recording
-          ? <span className="shortcut-menu-recording">Press keys…</span>
-          : shortcut
-            ? <kbd>{formatShortcut(shortcut)}</kbd>
-            : <span className="shortcut-menu-none">Set shortcut</span>}
-      </button>
+      {canAssignShortcuts && (
+        <button className="shortcut-menu-capture" onClick={() => { setError(null); setRecording(true) }}>
+          {recording
+            ? <span className="shortcut-menu-recording">Press keys…</span>
+            : shortcut
+              ? <kbd>{formatShortcut(shortcut)}</kbd>
+              : <span className="shortcut-menu-none">Set shortcut</span>}
+        </button>
+      )}
 
-      {error && <div className="shortcut-menu-error">{error}</div>}
+      {error && canAssignShortcuts && <div className="shortcut-menu-error">{error}</div>}
 
       {onToggleQuick && (
         <button className="shortcut-menu-quick" onClick={onToggleQuick} type="button">
