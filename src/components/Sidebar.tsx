@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
-import { Plus, FileUp, FileText, Trash2, FolderOpen, HardDrive, Pin, PinOff } from 'lucide-react'
+import { Plus, FileUp, FileText, Trash2, FolderOpen, HardDrive, Pin, PinOff, Globe } from 'lucide-react'
 import type { NoteMetadata } from '../types'
 import type { ImportResult } from '../hooks/useNotes'
 import { usePlatform } from '../hooks/usePlatform'
@@ -17,6 +17,9 @@ interface Props {
   onReorderPinned: (orderedIds: string[]) => void
   onChooseDirectory: () => void
   onImport: (files: File[]) => Promise<ImportResult>
+  /** Publishing writes a real file, so it needs a connected folder — hidden without one. */
+  canPublish: boolean
+  onTogglePublish: (id: string) => void
 }
 
 function formatDate(iso: string): string {
@@ -33,7 +36,7 @@ function formatDate(iso: string): string {
 // zero-width (not yet reliably focusable) element in some browsers.
 const SIDEBAR_TRANSITION_MS = 200
 
-export function Sidebar({ notes, activeId, folderName, isUsingFolder, collapsed, onOpen, onCreate, onDelete, onTogglePin, onReorderPinned, onChooseDirectory, onImport }: Props) {
+export function Sidebar({ notes, activeId, folderName, isUsingFolder, collapsed, onOpen, onCreate, onDelete, onTogglePin, onReorderPinned, onChooseDirectory, onImport, canPublish, onTogglePublish }: Props) {
   const itemRefs = useRef<(HTMLDivElement | null)[]>([])
   const createBtnRef = useRef<HTMLButtonElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
@@ -339,10 +342,31 @@ export function Sidebar({ notes, activeId, folderName, isUsingFolder, collapsed,
                   <FileText size={14} className="note-item-icon" />
                   <span className="note-item-title">{note.title || 'Untitled'}</span>
                   {note.pinned && <Pin size={11} className="note-item-pinned-badge" aria-label="Pinned" />}
+                  {/* At-a-glance: which notes are public, and which have drifted from what's live.
+                      The action buttons only appear on the active/focused row, so the badge is what
+                      makes this readable across the whole list. */}
+                  {note.publishedAt && (
+                    <Globe
+                      size={11}
+                      className={`note-item-published-badge ${note.updatedAt !== note.publishedAt ? 'note-item-published-badge--stale' : ''}`}
+                      aria-label={note.updatedAt !== note.publishedAt ? 'Published, with unpublished changes' : 'Published'}
+                    />
+                  )}
                 </div>
                 <div className="note-item-meta">
                   <span className="note-item-date">{formatDate(note.updatedAt)}</span>
                   <span className="note-item-actions">
+                    {canPublish && (
+                      <button
+                        className={`icon-btn note-item-action ${note.publishedAt ? 'note-item-action--on' : ''}`}
+                        onPointerDown={e => e.stopPropagation()}
+                        onClick={e => { e.stopPropagation(); onTogglePublish(note.id) }}
+                        title={note.publishedAt ? 'Unpublish' : 'Publish to your shared folder'}
+                        aria-label={note.publishedAt ? 'Unpublish' : 'Publish'}
+                      >
+                        <Globe size={13} />
+                      </button>
+                    )}
                     <button
                       className="icon-btn note-item-action"
                       onPointerDown={e => e.stopPropagation()}

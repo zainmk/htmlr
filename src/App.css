@@ -886,6 +886,177 @@
   }
 }
 
+/* ── Publishing ──────────────────────────────────── */
+
+.note-item-published-badge {
+  flex-shrink: 0;
+  color: var(--success);
+}
+
+/* Live copy is behind the note — amber rather than green, same language as the save status. */
+.note-item-published-badge--stale {
+  color: var(--warning);
+}
+
+/* A state toggle that's currently on (published), as opposed to an action waiting to be taken. */
+.note-item-action--on {
+  color: var(--success);
+}
+
+.toolbar-publish-btn {
+  color: var(--success);
+}
+
+.toolbar-publish-btn--stale {
+  color: var(--warning);
+}
+
+.publish-panel {
+  position: fixed;
+  z-index: 60;
+  width: 300px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-md);
+  animation: publish-panel-in 0.12s ease;
+}
+
+@keyframes publish-panel-in {
+  from { opacity: 0; transform: translateY(-3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.publish-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.publish-panel-url {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--bg-hover);
+}
+
+.publish-panel-url-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+  font-size: 11.5px;
+}
+
+.publish-panel-copy {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.publish-panel-copy:hover {
+  background: var(--bg-active);
+  color: var(--text);
+}
+
+.publish-panel-setup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.publish-panel-input {
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+}
+
+.publish-panel-input:focus {
+  border-color: var(--accent-dim);
+}
+
+.publish-panel-hint {
+  margin: 10px 0 0;
+  color: var(--text-muted);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.publish-panel-setup .publish-panel-hint {
+  margin-top: 0;
+}
+
+.publish-panel-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.publish-panel-btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 7px 8px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+.publish-panel-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.publish-panel-btn--primary {
+  border-color: var(--warning);
+  color: var(--warning);
+}
+
+.publish-panel-btn--danger:hover {
+  background: var(--danger-bg);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.publish-panel-note {
+  margin: 10px 0 0;
+  color: var(--text-faint);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
 /* NOTE: platform overrides live here, after every base rule they override. A media query
    adds no specificity, so a block sitting above `.toolbar-row` or `.toolbar-btn` silently
    loses to them on source order. Keep new ones in this section. */

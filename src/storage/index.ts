@@ -7,6 +7,9 @@ import {
   readAllNoteFiles,
   writeNoteFile,
   deleteNoteFile,
+  writeSharedCopy,
+  removeSharedCopy,
+  renameSharedCopy,
   openNoteFile as openNoteFileOnDisk,
 } from './fs'
 import { slugify } from './noteFile'
@@ -15,6 +18,7 @@ export type StorageStatus = 'unsupported' | 'needs-setup' | 'needs-permission' |
 
 const DIR_HANDLE_KEY = 'directoryHandle'
 const FALLBACK_KEY = 'fallbackMode'
+const PUBLISH_BASE_URL_KEY = 'publishBaseUrl'
 
 let dirHandle: FileSystemDirectoryHandle | null = null
 
@@ -192,7 +196,10 @@ export const storage = {
     const byRecency = (a: NoteMetadata, b: NoteMetadata) =>
       new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
     return notes
-      .map(({ id, title, createdAt, updatedAt, pinned, pinnedOrder }) => ({ id, title, createdAt, updatedAt, pinned, pinnedOrder }))
+      // Explicit projection: it drops `content` (the point of NoteMetadata), so every new field the
+      // sidebar needs has to be listed here or it silently never arrives.
+      .map(({ id, title, createdAt, updatedAt, pinned, pinnedOrder, publishedAt }) =>
+        ({ id, title, createdAt, updatedAt, pinned, pinnedOrder, publishedAt }))
       .sort((a, b) => {
         // Pinned notes first, in their manual order (pinnedOrder ascending). Everything else —
         // including pinned notes that predate manual ordering — falls back to last-modified.
@@ -231,6 +238,16 @@ export const storage = {
         folderOk = false // cache below still keeps the note safe
       }
     }
+    // A rename changes the filename, and the published copy is named the same way — move it so the
+    // note doesn't end up published twice under two names. The URL changes as a result, which the
+    // publish panel warns about.
+    if (dirHandle && previousId !== undefined && previousId !== note.id && note.publishedAt) {
+      try {
+        await renameSharedCopy(dirHandle, previousId, note.id)
+      } catch {
+        // leave the old published copy alone rather than losing it
+      }
+    }
     if (previousId !== undefined && previousId !== note.id) {
       await notesCache.delete(previousId)
     }
@@ -246,8 +263,56 @@ export const storage = {
       } catch {
         // ignore — file may already be gone
       }
+      // Deleting a note has to take its public copy down with it, or the note stays readable at its
+      // URL after it's gone from the app.
+      if (existing.publishedAt) {
+        try {
+          await removeSharedCopy(dirHandle, id)
+        } catch {
+          // ignore — nothing there to remove
+        }
+      }
     }
     await notesCache.delete(id)
+  },
+
+  /** Whether publishing is available at all: it writes a real file, so it needs a connected folder.
+   *  False in browser-only mode, where there's nowhere for a web server to read from. */
+  canPublish(): boolean {
+    return dirHandle !== null
+  },
+
+  /** Writes (or refreshes) the note's published snapshot in the shared folder. */
+  async publishNote(note: Note): Promise<boolean> {
+    if (!dirHandle) return false
+    try {
+      await writeSharedCopy(dirHandle, note)
+      return true
+    } catch {
+      return false
+    }
+  },
+
+  async unpublishNote(id: string): Promise<boolean> {
+    if (!dirHandle) return false
+    try {
+      await removeSharedCopy(dirHandle, id)
+      return true
+    } catch {
+      return false
+    }
+  },
+
+  /** Where the shared folder is served from, e.g. https://notes.example.com/. Per-device: it
+   *  describes this machine's hosting setup, not anything about the notes themselves. */
+  async getPublishBaseUrl(): Promise<string> {
+    return (await kvStore.get<string>(PUBLISH_BASE_URL_KEY)) ?? ''
+  },
+
+  async setPublishBaseUrl(url: string): Promise<void> {
+    const trimmed = url.trim()
+    if (trimmed) await kvStore.set(PUBLISH_BASE_URL_KEY, trimmed)
+    else await kvStore.delete(PUBLISH_BASE_URL_KEY)
   },
 
   /** Opens the note's real saved file (not a fresh copy) in a new tab. Returns false if there's no

@@ -289,6 +289,50 @@ export function useNotes() {
     await loadNoteList()
   }, [flushPending, loadNoteList])
 
+  // Publishing copies the note's rendered HTML into the folder's `shared/` subfolder, which a web
+  // server points at. Deliberately a *snapshot*: later edits don't touch the live copy until you
+  // publish again, so `publishedAt` records which version is out there. Calling this on an already
+  // published note is the "update" action — same operation, different label.
+  const publishNote = useCallback(async (id: string) => {
+    const flushed = await flushPending()
+    const note = (flushed && flushed.id === id ? flushed : null) ?? await storage.readNote(id)
+    if (!note) return false
+    if (!(await storage.publishNote(note))) return false
+    // Records the version now live. Doesn't touch updatedAt — publishing isn't an edit.
+    const updated: Note = { ...note, publishedAt: note.updatedAt }
+    setFolderError(!(await storage.writeNote(updated)))
+    setActiveNote(current => (current && current.id === id ? updated : current))
+    await loadNoteList()
+    return true
+  }, [flushPending, loadNoteList])
+
+  const unpublishNote = useCallback(async (id: string) => {
+    await flushPending()
+    const note = await storage.readNote(id)
+    if (!note) return
+    await storage.unpublishNote(id)
+    const updated: Note = { ...note, publishedAt: undefined }
+    setFolderError(!(await storage.writeNote(updated)))
+    setActiveNote(current => (current && current.id === id ? updated : current))
+    await loadNoteList()
+  }, [flushPending, loadNoteList])
+
+  const togglePublish = useCallback(async (id: string) => {
+    const note = await storage.readNote(id)
+    if (!note) return
+    if (note.publishedAt) await unpublishNote(id)
+    else await publishNote(id)
+  }, [publishNote, unpublishNote])
+
+  // Where the shared folder is served from. Loaded once; publishing works without it, you just
+  // don't get a clickable link until it's set.
+  const [publishBaseUrl, setPublishBaseUrlState] = useState('')
+  useEffect(() => { storage.getPublishBaseUrl().then(setPublishBaseUrlState).catch(() => {}) }, [])
+  const savePublishBaseUrl = useCallback(async (url: string) => {
+    await storage.setPublishBaseUrl(url)
+    setPublishBaseUrlState(url.trim())
+  }, [])
+
   // Applies a new manual order to the pinned notes (drag-and-drop). Renumbers them 0,1,2,… in the
   // given order and writes each changed file. Unpinned notes are untouched — they stay sorted by
   // last-modified. Keeps updatedAt intact so reordering never counts as an edit.
@@ -416,8 +460,10 @@ export function useNotes() {
   return {
     status, folderName, noteList, activeNote, saveStatus, titleConflict, openToken, folderError,
     isUsingFolder: storage.isUsingFolder(),
+    canPublish: storage.canPublish(),
+    publishBaseUrl,
     chooseDirectory, reconnect, continueWithoutFolder,
     openNote, createNote, updateNote, deleteNote, togglePin, reorderPinned, openNoteFile, retrySave,
-    importNotes,
+    importNotes, publishNote, unpublishNote, togglePublish, savePublishBaseUrl,
   }
 }

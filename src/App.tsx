@@ -24,7 +24,7 @@ export default function App() {
     noteList, activeNote, saveStatus, titleConflict, openToken, folderError,
     chooseDirectory, reconnect, continueWithoutFolder,
     openNote, createNote, updateNote, deleteNote, togglePin, reorderPinned, openNoteFile, retrySave,
-    importNotes,
+    importNotes, canPublish, publishBaseUrl, publishNote, unpublishNote, togglePublish, savePublishBaseUrl,
   } = useNotes()
 
   const { canInstall, install, iosInstallHint } = usePwaInstall()
@@ -158,6 +158,8 @@ export default function App() {
           onReorderPinned={reorderPinned}
           onChooseDirectory={chooseDirectory}
           onImport={importNotes}
+          canPublish={canPublish}
+          onTogglePublish={togglePublish}
         />
 
         {/* Tap-outside-to-close, the standard drawer gesture. Only mounted while the drawer is
@@ -183,6 +185,12 @@ export default function App() {
               titleConflict={titleConflict}
               folderError={folderError}
               folderName={folderName}
+              publish={canPublish ? {
+                baseUrl: publishBaseUrl,
+                onSaveBaseUrl: savePublishBaseUrl,
+                onUpdate: () => publishNote(activeNote.id),
+                onUnpublish: () => unpublishNote(activeNote.id),
+              } : null}
               sidebarCollapsed={sidebarCollapsed}
               onTitleChange={title => updateNote({ title }, activeNote)}
               onContentChange={content => updateNote({ content }, activeNote)}

@@ -7,9 +7,10 @@ import {
   Code, CodeSquare, Quote,
   AlignLeft, AlignCenter, AlignRight,
   Link2, Link2Off, Minus,
-  Undo2, Redo2, ExternalLink, RotateCcw, Check, ChevronDown, ChevronUp,
+  Undo2, Redo2, ExternalLink, RotateCcw, Check, ChevronDown, ChevronUp, Globe,
 } from 'lucide-react'
 import { ShortcutMenu } from './ShortcutMenu'
+import { PublishPanel } from './PublishPanel'
 import { usePlatform } from '../hooks/usePlatform'
 import {
   DEFAULT_SHORTCUTS, matchesShortcut, shortcutsEqual,
@@ -19,6 +20,17 @@ import {
 interface Props {
   editor: Editor
   onOpenFile: () => void
+  /** Publishing state for the open note. Null when it isn't published — the indicator is exactly
+   *  that, an indicator, and publishing itself is a per-note toggle in the sidebar. */
+  publish: {
+    noteId: string
+    publishedAt: string
+    updatedAt: string
+    baseUrl: string
+    onSaveBaseUrl: (url: string) => void
+    onUpdate: () => void
+    onUnpublish: () => void
+  } | null
 }
 
 // A single toolbar button. `group` drives where dividers fall in the master toolbar; `rightAligned`
@@ -87,7 +99,8 @@ function insertIndexAt(rowEl: HTMLElement, clientX: number): number {
   return btns.length
 }
 
-export function EditorToolbar({ editor, onOpenFile }: Props) {
+export function EditorToolbar({ editor, onOpenFile, publish }: Props) {
+  const [publishOpen, setPublishOpen] = useState<{ x: number; y: number } | null>(null)
   const [quickIds, setQuickIds] = useState<string[]>(loadQuickIds)
   const [customShortcuts, setCustomShortcuts] = useState<Record<string, Shortcut>>(loadCustomShortcuts)
   // The shortcut popup is right-click only, and always shows the full card (description, current
@@ -501,6 +514,21 @@ export function EditorToolbar({ editor, onOpenFile }: Props) {
         {/* Pinned to the shell's top-right, outside the rows, so these sit on the visible toolbar
             whether or not the bar is expanded and whichever row happens to be on top. */}
         <div className="toolbar-pinned">
+          {/* Shown only while the open note is published — it reports state, and opens the panel
+              holding the link, the update action and unpublish. */}
+          {publish && (
+            <button
+              className={`toolbar-btn toolbar-publish-btn ${publish.updatedAt !== publish.publishedAt ? 'toolbar-publish-btn--stale' : ''}`}
+              onClick={e => {
+                const r = e.currentTarget.getBoundingClientRect()
+                setPublishOpen(open => (open ? null : { x: r.left - 240, y: r.bottom + 6 }))
+              }}
+              aria-label={publish.updatedAt !== publish.publishedAt ? 'Published — live copy is behind' : 'Published'}
+              type="button"
+            >
+              <Globe size={sz} />
+            </button>
+          )}
           {isTouch && (
             <button
               className="toolbar-btn"
@@ -579,6 +607,21 @@ export function EditorToolbar({ editor, onOpenFile }: Props) {
           // tool is pinned to the shell permanently, so favouriting it is a no-op.
           inQuick={quickIds.includes(menu.id)}
           onToggleQuick={platform.canUseHtml5Drag || menuItem.rightAligned ? undefined : () => toggleQuick(menu.id)}
+        />
+      )}
+
+      {publish && publishOpen && (
+        <PublishPanel
+          x={publishOpen.x}
+          y={publishOpen.y}
+          noteId={publish.noteId}
+          publishedAt={publish.publishedAt}
+          updatedAt={publish.updatedAt}
+          baseUrl={publish.baseUrl}
+          onSaveBaseUrl={publish.onSaveBaseUrl}
+          onUpdate={() => { publish.onUpdate(); setPublishOpen(null) }}
+          onUnpublish={() => { publish.onUnpublish(); setPublishOpen(null) }}
+          onClose={() => setPublishOpen(null)}
         />
       )}
     </>
