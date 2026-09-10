@@ -471,7 +471,7 @@ export function EditorToolbar({ editor, onOpenFile }: Props) {
         {quickItems.length === 0 && !dragging
           ? (
             <span className="toolbar-quick-hint">
-              {platform.canDragToReorder
+              {platform.canUseHtml5Drag
                 ? 'Drag tools here for quick access'
                 : 'Press and hold a tool to add it here'}
             </span>
@@ -572,7 +572,7 @@ export function EditorToolbar({ editor, onOpenFile }: Props) {
           // Stands in for the drag-and-drop that only works where dragging does. The right-aligned
           // tool is pinned to the shell permanently, so favouriting it is a no-op.
           inQuick={quickIds.includes(menu.id)}
-          onToggleQuick={platform.canDragToReorder || menuItem.rightAligned ? undefined : () => toggleQuick(menu.id)}
+          onToggleQuick={platform.canUseHtml5Drag || menuItem.rightAligned ? undefined : () => toggleQuick(menu.id)}
         />
       )}
     </>

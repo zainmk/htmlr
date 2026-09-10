@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useMediaQuery, MOBILE_QUERY, TOUCH_QUERY } from './useMediaQuery'
+import { useMediaQuery, MOBILE_QUERY, TOUCH_QUERY, FINE_POINTER_QUERY } from './useMediaQuery'
 
 /** What this device can actually do, named by capability rather than by device class.
  *
@@ -14,8 +14,10 @@ export interface Platform {
   pointer: 'touch' | 'mouse'
   /** Assigning a keyboard shortcut is pointless without a keyboard to press it with. */
   canAssignShortcuts: boolean
-  /** HTML5 drag-and-drop. Does nothing on an iPhone, so drag-driven features need a button route. */
-  canDragToReorder: boolean
+  /** Whether the HTML5 drag-and-drop API is usable. It never fires for touch, so anything built on
+   *  it needs another route on a phone. (Reordering pinned notes deliberately doesn't use it — see
+   *  Sidebar — so this now only covers dragging tools into the quick toolbar.) */
+  canUseHtml5Drag: boolean
   /** Offer a file picker for pulling notes in — the only ingestion route where there's no folder. */
   canImportFiles: boolean
   /** Prefer the share sheet over a download. A download is close to useless on a phone; a share
@@ -26,6 +28,10 @@ export interface Platform {
 export function usePlatform(): Platform {
   const isMobile = useMediaQuery(MOBILE_QUERY)
   const isTouch = useMediaQuery(TOUCH_QUERY)
+  // Deliberately not `!isTouch`: a touchscreen laptop or 2-in-1 can report a coarse *primary*
+  // pointer while still having a trackpad, and dragging works fine there. Asking whether any
+  // precise pointer exists keeps the button fallback on real phones and nowhere else.
+  const hasFinePointer = useMediaQuery(FINE_POINTER_QUERY)
 
   // A coarse pointer does not mean there's no keyboard — an iPad in a keyboard case is both, and
   // there is no media query for "has a keyboard". So assume none on touch, then upgrade the moment
@@ -44,8 +50,8 @@ export function usePlatform(): Platform {
     layout: isMobile ? 'drawer' : 'columns',
     pointer: isTouch ? 'touch' : 'mouse',
     canAssignShortcuts: !isTouch || sawPhysicalKeyboard,
-    canDragToReorder: !isTouch,
+    canUseHtml5Drag: hasFinePointer,
     canImportFiles: isTouch,
     prefersShareSheet: isTouch,
-  }), [isMobile, isTouch, sawPhysicalKeyboard])
+  }), [isMobile, isTouch, hasFinePointer, sawPhysicalKeyboard])
 }

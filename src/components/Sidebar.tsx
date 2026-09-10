@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
-import { Plus, FileUp, FileText, Trash2, FolderOpen, HardDrive, Pin, PinOff, ChevronUp, ChevronDown } from 'lucide-react'
+import { Plus, FileUp, FileText, Trash2, FolderOpen, HardDrive, Pin, PinOff } from 'lucide-react'
 import type { NoteMetadata } from '../types'
 import type { ImportResult } from '../hooks/useNotes'
 import { usePlatform } from '../hooks/usePlatform'
@@ -44,24 +44,31 @@ export function Sidebar({ notes, activeId, folderName, isUsingFolder, collapsed,
   // to move focus back into it (see the effect below).
   const refocusAfterDeleteRef = useRef<number | null>(null)
 
-  // Drag-to-reorder, pinned notes only. Unpinned notes stay sorted by last-modified and aren't
-  // draggable. `draggingId` is the note being dragged; `dragOverId` is the pinned note it's
-  // currently hovering, used to draw an insertion indicator.
+  // Drag-to-reorder, pinned notes only — unpinned notes stay sorted by last-modified.
+  //
+  // Built on pointer events rather than HTML5 drag-and-drop, because that API never fires for touch:
+  // `draggable` + dragstart/dragover/drop simply does nothing on a phone. Pointer events are the one
+  // input model every device shares, so this is a single gesture with no platform branch and no
+  // button fallback. Mouse and finger differ only in how the drag is *claimed*: a mouse starts as
+  // soon as it moves a few pixels, a finger has to hold still for a moment first — so an ordinary
+  // swipe still scrolls the list and an ordinary tap still opens the note.
+  const MOUSE_DRAG_THRESHOLD = 4
+  const TOUCH_HOLD_MS = 380
+  const TOUCH_CANCEL_THRESHOLD = 10
+
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [dragOverId, setDragOverId] = useState<string | null>(null)
+  // Mirrors draggingId for the event handlers, which would otherwise read a stale closure in the
+  // gap between the state update and the next render.
+  const activeDragId = useRef<string | null>(null)
+  const pendingDrag = useRef<{ id: string; x: number; y: number; pointerId: number; el: HTMLElement } | null>(null)
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // A drag ends with a pointerup on the note, which the browser follows with a click — swallow it
+  // so reordering doesn't also open the note you just moved.
+  const suppressClick = useRef(false)
 
   const platform = usePlatform()
   const pinnedIds = notes.filter(n => n.pinned).map(n => n.id)
-
-  const movePinned = (id: string, delta: number) => {
-    const from = pinnedIds.indexOf(id)
-    const to = from + delta
-    if (from === -1 || to < 0 || to >= pinnedIds.length) return
-    const reordered = [...pinnedIds]
-    reordered.splice(from, 1)
-    reordered.splice(to, 0, id)
-    onReorderPinned(reordered)
-  }
 
   // Importing can legitimately do nothing visible — every file already present and current — so it
   // reports what happened rather than leaving the user wondering whether the picker worked.
@@ -84,15 +91,86 @@ export function Sidebar({ notes, activeId, folderName, isUsingFolder, collapsed,
     importStatusTimer.current = setTimeout(() => setImportStatus(null), 6000)
   }
 
-  const commitReorder = (targetId: string) => {
-    const from = pinnedIds.indexOf(draggingId ?? '')
-    const to = pinnedIds.indexOf(targetId)
-    if (from !== -1 && to !== -1 && from !== to) {
-      const reordered = [...pinnedIds]
-      reordered.splice(from, 1)
-      reordered.splice(to, 0, pinnedIds[from])
-      onReorderPinned(reordered)
+  const clearPendingDrag = () => {
+    if (holdTimer.current) { clearTimeout(holdTimer.current); holdTimer.current = null }
+    pendingDrag.current = null
+  }
+  useEffect(() => () => { if (holdTimer.current) clearTimeout(holdTimer.current) }, [])
+
+  // While a drag is live, stop the browser scrolling the list out from under it. Has to be a
+  // non-passive listener: touchmove is passive by default, where preventDefault does nothing.
+  useEffect(() => {
+    if (!draggingId) return
+    const block = (e: TouchEvent) => e.preventDefault()
+    document.addEventListener('touchmove', block, { passive: false })
+    return () => document.removeEventListener('touchmove', block)
+  }, [draggingId])
+
+  /** Which pinned row the pointer is over, by row midpoints. Rows never move during a drag — the
+   *  dragged one dims and an insertion line marks the target — so the rects stay stable. */
+  const targetIndexAt = (clientY: number): number => {
+    let idx = 0
+    for (let i = 0; i < pinnedIds.length; i++) {
+      const el = itemRefs.current[i]
+      if (!el) continue
+      const r = el.getBoundingClientRect()
+      if (clientY > r.top + r.height / 2) idx = i + 1
     }
+    return Math.max(0, Math.min(idx, pinnedIds.length - 1))
+  }
+
+  const beginDrag = () => {
+    const p = pendingDrag.current
+    if (!p) return
+    // Capture keeps move/up coming to this element once the pointer leaves it, so the drag survives
+    // travelling across the other rows. Best-effort: without it the events still bubble.
+    try { p.el.setPointerCapture(p.pointerId) } catch { /* not fatal */ }
+    activeDragId.current = p.id
+    suppressClick.current = true
+    setDraggingId(p.id)
+    setDragOverId(p.id)
+  }
+
+  const onItemPointerDown = (note: NoteMetadata, e: React.PointerEvent<HTMLDivElement>) => {
+    suppressClick.current = false
+    if (!note.pinned) return
+    if (e.pointerType === 'mouse' && e.button !== 0) return
+    clearPendingDrag()
+    pendingDrag.current = { id: note.id, x: e.clientX, y: e.clientY, pointerId: e.pointerId, el: e.currentTarget }
+    if (e.pointerType !== 'mouse') holdTimer.current = setTimeout(beginDrag, TOUCH_HOLD_MS)
+  }
+
+  const onItemPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const p = pendingDrag.current
+    if (!p) return
+
+    if (!activeDragId.current) {
+      const dx = Math.abs(e.clientX - p.x)
+      const dy = Math.abs(e.clientY - p.y)
+      if (e.pointerType === 'mouse') {
+        if (dx > MOUSE_DRAG_THRESHOLD || dy > MOUSE_DRAG_THRESHOLD) beginDrag()
+      } else if (dx > TOUCH_CANCEL_THRESHOLD || dy > TOUCH_CANCEL_THRESHOLD) {
+        clearPendingDrag() // moved before the hold completed — that's a scroll, not a drag
+      }
+      return
+    }
+    setDragOverId(pinnedIds[targetIndexAt(e.clientY)] ?? null)
+  }
+
+  const endDrag = (commit: boolean) => {
+    const id = activeDragId.current
+    if (commit && id && dragOverId) {
+      const from = pinnedIds.indexOf(id)
+      const to = pinnedIds.indexOf(dragOverId)
+      if (from !== -1 && to !== -1 && from !== to) {
+        const reordered = [...pinnedIds]
+        reordered.splice(from, 1)
+        reordered.splice(to, 0, id)
+        onReorderPinned(reordered)
+      }
+    }
+    activeDragId.current = null
+    clearPendingDrag()
     setDraggingId(null)
     setDragOverId(null)
   }
@@ -232,9 +310,12 @@ export function Sidebar({ notes, activeId, folderName, isUsingFolder, collapsed,
           const showPinnedDivider = !note.pinned && index > 0 && !!notes[index - 1].pinned
           const itemClass = [
             'note-item',
+            note.pinned ? 'note-item--reorderable' : '',
             note.id === activeId ? 'note-item--active' : '',
             draggingId === note.id ? 'note-item--dragging' : '',
-            dragOverId === note.id ? 'note-item--drag-over' : '',
+            // Not on the dragged row itself — an insertion line above the row you're holding just
+            // reads as noise until you've actually moved somewhere.
+            dragOverId === note.id && draggingId !== note.id ? 'note-item--drag-over' : '',
           ].filter(Boolean).join(' ')
           return (
             <Fragment key={note.id}>
@@ -242,28 +323,17 @@ export function Sidebar({ notes, activeId, folderName, isUsingFolder, collapsed,
               <div
                 ref={el => { itemRefs.current[index] = el }}
                 className={itemClass}
-                onClick={() => onOpen(note.id)}
+                onClick={() => {
+                  if (suppressClick.current) { suppressClick.current = false; return }
+                  onOpen(note.id)
+                }}
                 role="option"
                 aria-selected={note.id === activeId}
                 tabIndex={note.id === activeId ? 0 : -1}
-                draggable={note.pinned && platform.canDragToReorder}
-                onDragStart={note.pinned ? e => {
-                  setDraggingId(note.id)
-                  e.dataTransfer.effectAllowed = 'move'
-                } : undefined}
-                onDragEnd={() => { setDraggingId(null); setDragOverId(null) }}
-                onDragOver={note.pinned ? e => {
-                  if (draggingId && draggingId !== note.id) {
-                    e.preventDefault()
-                    e.dataTransfer.dropEffect = 'move'
-                    setDragOverId(note.id)
-                  }
-                } : undefined}
-                onDragLeave={() => { if (dragOverId === note.id) setDragOverId(null) }}
-                onDrop={note.pinned ? e => {
-                  e.preventDefault()
-                  commitReorder(note.id)
-                } : undefined}
+                onPointerDown={e => onItemPointerDown(note, e)}
+                onPointerMove={onItemPointerMove}
+                onPointerUp={() => endDrag(true)}
+                onPointerCancel={() => endDrag(false)}
               >
                 <div className="note-item-main">
                   <FileText size={14} className="note-item-icon" />
@@ -273,31 +343,9 @@ export function Sidebar({ notes, activeId, folderName, isUsingFolder, collapsed,
                 <div className="note-item-meta">
                   <span className="note-item-date">{formatDate(note.updatedAt)}</span>
                   <span className="note-item-actions">
-                    {/* Button route for reordering wherever dragging doesn't work. */}
-                    {!platform.canDragToReorder && note.pinned && (
-                      <>
-                        <button
-                          className="icon-btn note-item-action"
-                          onClick={e => { e.stopPropagation(); movePinned(note.id, -1) }}
-                          disabled={pinnedIds.indexOf(note.id) === 0}
-                          title="Move up"
-                          aria-label="Move up"
-                        >
-                          <ChevronUp size={13} />
-                        </button>
-                        <button
-                          className="icon-btn note-item-action"
-                          onClick={e => { e.stopPropagation(); movePinned(note.id, 1) }}
-                          disabled={pinnedIds.indexOf(note.id) === pinnedIds.length - 1}
-                          title="Move down"
-                          aria-label="Move down"
-                        >
-                          <ChevronDown size={13} />
-                        </button>
-                      </>
-                    )}
                     <button
                       className="icon-btn note-item-action"
+                      onPointerDown={e => e.stopPropagation()}
                       onClick={e => {
                         e.stopPropagation()
                         onTogglePin(note.id)
@@ -309,6 +357,7 @@ export function Sidebar({ notes, activeId, folderName, isUsingFolder, collapsed,
                     <button
                       ref={confirmingDelete === note.id ? armedDeleteRef : undefined}
                       className={`icon-btn icon-btn--danger note-item-action ${confirmingDelete === note.id ? 'note-item-delete--armed' : ''}`}
+                      onPointerDown={e => e.stopPropagation()}
                       onClick={e => {
                         e.stopPropagation()
                         if (confirmingDelete === note.id) {

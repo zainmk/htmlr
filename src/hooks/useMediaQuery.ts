@@ -8,6 +8,12 @@ export const MOBILE_QUERY = '(max-width: 768px) and (pointer: coarse)'
 /** Touch-first input. Every hover-only affordance needs an explicit equivalent under this one. */
 export const TOUCH_QUERY = '(hover: none) and (pointer: coarse)'
 
+/** Whether *any* precise pointer exists — a mouse, trackpad or stylus — even when touch is the
+ *  primary input. A touchscreen laptop matches both this and TOUCH_QUERY; a phone matches only
+ *  TOUCH_QUERY. Use this for anything a precise pointer can do (dragging), rather than assuming a
+ *  coarse primary pointer means there's nothing else attached. */
+export const FINE_POINTER_QUERY = '(any-pointer: fine)'
+
 /** Re-renders when a media query starts or stops matching, so layout decisions that can't be made
  *  in CSS alone (which component to render, whether a tap should close the drawer) stay in sync
  *  with the ones that can. */

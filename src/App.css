@@ -269,8 +269,14 @@
   cursor: grab;
 }
 
+/* Pinned rows are the reorderable ones — say so with the cursor, and close the hand mid-drag. */
+.note-item--reorderable {
+  cursor: grab;
+}
+
 .note-item--dragging {
   opacity: 0.4;
+  cursor: grabbing;
 }
 
 /* Insertion indicator: a line at the top edge of the note being dragged over. */
