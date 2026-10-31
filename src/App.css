@@ -1171,6 +1171,7 @@
 .save-status--saved { color: var(--success); }
 .save-status--unsaved { color: var(--warning); }
 .save-status--folder-error { color: var(--danger); }
+.save-status--syncing { color: var(--text-muted); }
 
 /* The dot reads as "state"; the folder warning carries its own icon instead, so drop it there. */
 .save-status--folder-error::before { display: none; }

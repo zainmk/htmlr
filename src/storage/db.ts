@@ -85,6 +85,10 @@ export const notesCache = {
   get(id: string): Promise<Note | undefined> {
     return run<Note | undefined>(NOTES_STORE, 'readonly', s => s.get(id))
   },
+  /** Reads only the key — `get` would deserialize the whole note, pasted images and all. */
+  has(id: string): Promise<boolean> {
+    return run<IDBValidKey | undefined>(NOTES_STORE, 'readonly', s => s.getKey(id)).then(key => key !== undefined)
+  },
   put(note: Note): Promise<void> {
     return run(NOTES_STORE, 'readwrite', s => s.put(note))
   },

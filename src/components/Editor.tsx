@@ -21,6 +21,8 @@ interface Props {
   titleConflict: boolean
   /** A folder is connected but the last write didn't reach it — the note lives only in the cache. */
   folderError: boolean
+  /** Saved in the cache, and the folder has been catching up for a noticeable while (a slow or remote share). */
+  folderSyncing: boolean
   folderName: string | null
   sidebarCollapsed: boolean
   onTitleChange: (title: string) => void
@@ -83,7 +85,7 @@ function handleImagePaste(view: EditorView, event: ClipboardEvent): boolean {
   return true
 }
 
-export function Editor({ note, openToken, saveStatus, titleConflict, folderError, folderName, sidebarCollapsed, onTitleChange, onContentChange, onOpenFile, onRetrySave }: Props) {
+export function Editor({ note, openToken, saveStatus, titleConflict, folderError, folderSyncing, folderName, sidebarCollapsed, onTitleChange, onContentChange, onOpenFile, onRetrySave }: Props) {
   // Which note the editor's document currently holds. Tracked by openToken rather than by any
   // field of the note: note.id changes on rename (a rename isn't a note switch), and note.createdAt
   // is not unique — files copied into the folder without a data-htmlr-created attribute are all
@@ -125,19 +127,28 @@ export function Editor({ note, openToken, saveStatus, titleConflict, folderError
   const wordCount = editor?.storage.characterCount?.words() ?? 0
   const charCount = editor?.storage.characterCount?.characters() ?? 0
 
-  // Three states, in priority order: an edit still in the debounce window, then a save that
-  // reached the cache but not the folder, then a clean save. The middle one is the one that used
-  // to be invisible — the write failed, was swallowed, and the bar still read "Saved".
+  // Four states, in priority order: an edit still in the debounce window, then a save that reached
+  // the cache but couldn't reach the folder, then one the folder is still catching up on, then a
+  // clean save. The folder error is the one that used to be invisible — the write failed, was
+  // swallowed, and the bar still read "Saved".
+  const folderLabel = folderName ?? 'your notes folder'
   const status = saveStatus === 'unsaved'
     ? { kind: 'unsaved', label: 'Unsaved changes', title: "This edit hasn't been written yet." }
     : folderError
       ? {
           kind: 'folder-error',
           label: 'Saved in browser only',
-          title: `htmlr couldn't write this note to ${folderName ?? 'your notes folder'}, so the file there is out of date. `
-            + "The note is safe in this browser's storage. Check the folder is reachable, then retry.",
+          title: `htmlr couldn't write this note to ${folderLabel}, so the file there is out of date. `
+            + "The note is safe in this browser's storage, and htmlr keeps retrying. Check the folder is reachable, or retry now.",
         }
-      : { kind: 'saved', label: 'Saved', title: '' }
+      : folderSyncing
+        ? {
+            kind: 'syncing',
+            label: 'Saving to folder…',
+            title: `Saved in this browser; still writing to ${folderLabel}. A remote folder can take a while. `
+              + 'Closing htmlr now is safe — it finishes the next time it opens.',
+          }
+        : { kind: 'saved', label: 'Saved', title: '' }
 
   return (
     <div className="editor-pane">

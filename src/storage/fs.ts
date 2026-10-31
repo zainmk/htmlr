@@ -37,7 +37,7 @@ export async function readAllNoteFiles(dir: FileSystemDirectoryHandle): Promise<
 
 export async function writeNoteFile(dir: FileSystemDirectoryHandle, note: Note, previousId?: string): Promise<void> {
   if (previousId !== undefined && previousId !== note.id) {
-    await removeEntrySafe(dir, filenameFor(previousId))
+    await removeIfPresent(dir, filenameFor(previousId))
   }
   const fileHandle = await dir.getFileHandle(filenameFor(note.id), { create: true })
   const writable = await fileHandle.createWritable()
@@ -45,8 +45,8 @@ export async function writeNoteFile(dir: FileSystemDirectoryHandle, note: Note, 
   await writable.close()
 }
 
-export async function deleteNoteFile(dir: FileSystemDirectoryHandle, note: Pick<Note, 'id'>): Promise<void> {
-  await removeEntrySafe(dir, filenameFor(note.id))
+export async function deleteNoteFile(dir: FileSystemDirectoryHandle, id: string): Promise<void> {
+  await removeIfPresent(dir, filenameFor(id))
 }
 
 /** Opens the note's actual saved file (not a fresh export) in a new tab, reading it straight off disk. */
@@ -58,10 +58,12 @@ export async function openNoteFile(dir: FileSystemDirectoryHandle, id: string): 
   setTimeout(() => URL.revokeObjectURL(url), 30_000)
 }
 
-async function removeEntrySafe(dir: FileSystemDirectoryHandle, name: string): Promise<void> {
+/** A file that's already gone is fine; a folder that can't be reached is not — that has to surface,
+ *  or the caller would count a removal that never happened as done. */
+async function removeIfPresent(dir: FileSystemDirectoryHandle, name: string): Promise<void> {
   try {
     await dir.removeEntry(name)
-  } catch {
-    // already gone
+  } catch (err) {
+    if (!(err instanceof DOMException && err.name === 'NotFoundError')) throw err
   }
 }

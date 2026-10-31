@@ -6,17 +6,47 @@ import {
   verifyPermission,
   readAllNoteFiles,
   writeNoteFile,
-  deleteNoteFile,
   openNoteFile as openNoteFileOnDisk,
 } from './fs'
+import { folderSync, type FolderSyncState } from './folderSync'
 import { slugify } from './noteFile'
 
 export type StorageStatus = 'unsupported' | 'needs-setup' | 'needs-permission' | 'missing-folder' | 'ready' | 'fallback'
+export type { FolderSyncState }
 
 const DIR_HANDLE_KEY = 'directoryHandle'
 const FALLBACK_KEY = 'fallbackMode'
 
 let dirHandle: FileSystemDirectoryHandle | null = null
+
+// Explicit projection: it drops `content` (the point of NoteMetadata), so every new field the
+// sidebar needs has to be listed here or it silently never arrives.
+function toMetadata({ id, title, createdAt, updatedAt, pinned, pinnedOrder }: Note): NoteMetadata {
+  return { id, title, createdAt, updatedAt, pinned, pinnedOrder }
+}
+
+/** Metadata for every cached note, kept in memory. The list is rebuilt after every save, and reading
+ *  it from IndexedDB meant deserializing every note in full — pasted images included — just to get
+ *  the titles; with a few image-heavy notes that froze typing for ~50ms on each save. */
+let indexPromise: Promise<Map<string, NoteMetadata>> | null = null
+
+function getIndex(): Promise<Map<string, NoteMetadata>> {
+  indexPromise ??= notesCache.getAll().then(notes => new Map(notes.map(n => [n.id, toMetadata(n)])))
+  return indexPromise
+}
+
+/** For bulk cache changes (reconciling, migrations): rebuild from IndexedDB on next use. */
+function invalidateIndex(): void {
+  indexPromise = null
+}
+
+async function isSameFolder(a: FileSystemDirectoryHandle, b: FileSystemDirectoryHandle): Promise<boolean> {
+  try {
+    return await a.isSameEntry(b)
+  } catch {
+    return false
+  }
+}
 
 /** A folder we still hold permission for, but whose directory has since been deleted, moved, or
  *  renamed on disk — reading it throws NotFoundError. Distinct from a permission revocation, where
@@ -38,11 +68,16 @@ function idIsFree(id: string, self: Note, all: Note[], claimed: Set<string>): bo
  *  virtual drive) that was briefly unreachable: an edit made during that window still lands in the cache
  *  (see `writeNote` below), but never reached the actual file. Without this check, the next reconcile
  *  would silently overwrite that edit with the stale on-disk copy the moment the folder became reachable
- *  again. If the cache turns out to hold the newer version, it's written back to disk here to close the
- *  loop — not just kept in the cache. */
+ *  again. If the cache turns out to hold the newer version, it's queued to be written back to disk to
+ *  close the loop — not just kept in the cache.
+ *
+ *  Work the folder sync hasn't finished yet is respected too: a note still waiting to be written
+ *  isn't mistaken for one deleted outside the app, and a file still waiting to be removed (a rename's
+ *  old name, a deleted note) isn't imported back as a note. */
 async function reconcileFromDisk(): Promise<void> {
   if (!dirHandle) return
-  const rawNotes = await readAllNoteFiles(dirHandle)
+  const { writing, removing } = folderSync.pendingNames()
+  const rawNotes = (await readAllNoteFiles(dirHandle)).filter(n => !removing.has(n.id))
   const claimed = new Set<string>()
   const finalNotes: Note[] = []
 
@@ -67,28 +102,23 @@ async function reconcileFromDisk(): Promise<void> {
   const cached = await notesCache.getAll()
   const cachedById = new Map(cached.map(n => [n.id, n]))
 
-  // Note: a cached note with no matching disk file is treated as an external deletion (the user
-  // removed the file directly) and dropped — this is the same ambiguity as always, since a note
-  // created entirely offline and never yet written to disk looks identical from here. Unlike the
-  // same-id conflict below, there's no timestamp to disambiguate a note that doesn't exist on one
-  // side at all.
+  // A cached note with no matching disk file was deleted outside the app (the user removed the file
+  // directly) — unless the folder sync still owes the folder that note, in which case it simply
+  // hasn't been written yet.
   for (const note of cached) {
-    if (!diskIds.has(note.id)) await notesCache.delete(note.id)
+    if (!diskIds.has(note.id) && !writing.has(note.id)) await notesCache.delete(note.id)
   }
 
   for (const diskNote of finalNotes) {
     const cachedNote = cachedById.get(diskNote.id)
     const cacheIsNewer = cachedNote && new Date(cachedNote.updatedAt).getTime() > new Date(diskNote.updatedAt).getTime()
     if (cacheIsNewer) {
-      try {
-        await writeNoteFile(dirHandle, cachedNote)
-      } catch {
-        // still unreachable — leave it for the next reconcile to retry, cache already has it
-      }
+      await folderSync.queueWrite(cachedNote.id)
       continue // keep the newer cached version; don't let the stale disk copy overwrite it
     }
     await notesCache.put(diskNote)
   }
+  invalidateIndex()
 }
 
 /** Same legacy-id cleanup as reconcileFromDisk, for the no-folder (IndexedDB-only) fallback path. */
@@ -105,6 +135,7 @@ async function migrateFallbackIds(): Promise<void> {
       claimed.add(note.id)
     }
   }
+  invalidateIndex()
 }
 
 export const storage = {
@@ -131,6 +162,7 @@ export const storage = {
       return 'needs-permission'
     }
     dirHandle = saved
+    await folderSync.connect(saved)
     // Permission is granted, but the folder itself may be gone (deleted/moved/renamed since we last
     // saw it). Reading it then throws NotFoundError — surface that as its own recoverable state
     // instead of letting the rejection escape and hang the app on the loading spinner forever.
@@ -140,13 +172,18 @@ export const storage = {
       if (isFolderMissingError(err)) return 'missing-folder'
       throw err
     }
+    folderSync.start() // finish anything a previous session left unwritten
     return 'ready'
   },
 
   async chooseDirectory(): Promise<boolean> {
     const handle = await pickDirectory()
     if (!handle) return false
+    // What the old folder was still owed doesn't belong in a different one. Re-picking the same
+    // folder keeps it, though — dropping it would lose edits that just haven't been written yet.
+    if (!dirHandle || !(await isSameFolder(dirHandle, handle))) await folderSync.discard()
     dirHandle = handle
+    await folderSync.connect(handle)
     await kvStore.set(DIR_HANDLE_KEY, handle)
     await kvStore.delete(FALLBACK_KEY)
     try {
@@ -156,6 +193,7 @@ export const storage = {
       // for instance). The connection itself still stands — carry on with the cache and let the
       // next reconcile pick the files up, rather than rejecting and leaving the button dead.
     }
+    folderSync.start()
     return true
   },
 
@@ -165,12 +203,14 @@ export const storage = {
   async reconnect(): Promise<boolean> {
     if (!dirHandle) return false
     if (!(await verifyPermission(dirHandle, true))) return false
+    await folderSync.connect(dirHandle)
     try {
       await reconcileFromDisk()
     } catch (err) {
       if (isFolderMissingError(err)) return false
       throw err
     }
+    folderSync.start()
     return true
   },
 
@@ -188,14 +228,10 @@ export const storage = {
   },
 
   async listNotes(): Promise<NoteMetadata[]> {
-    const notes = await notesCache.getAll()
+    const notes = [...(await getIndex()).values()]
     const byRecency = (a: NoteMetadata, b: NoteMetadata) =>
       new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
     return notes
-      // Explicit projection: it drops `content` (the point of NoteMetadata), so every new field the
-      // sidebar needs has to be listed here or it silently never arrives.
-      .map(({ id, title, createdAt, updatedAt, pinned, pinnedOrder }) =>
-        ({ id, title, createdAt, updatedAt, pinned, pinnedOrder }))
       .sort((a, b) => {
         // Pinned notes first, in their manual order (pinnedOrder ascending). Everything else —
         // including pinned notes that predate manual ordering — falls back to last-modified.
@@ -215,48 +251,48 @@ export const storage = {
   },
 
   async hasNote(id: string): Promise<boolean> {
-    return (await notesCache.get(id)) !== undefined
+    return (await getIndex()).has(id)
   },
 
-  /** Writes a note. Pass `previousId` when the note's id is changing (a title-driven rename) so the old
+  /** Saves a note. Pass `previousId` when the note's id is changing (a title-driven rename) so the old
    *  file/cache entry gets cleaned up — otherwise it's treated as a normal save under the same id.
    *
-   *  Returns false when a folder is connected but couldn't be written to (permission revoked
-   *  mid-session, a network mount that dropped). The note is still safe in the cache, but the
-   *  .html file on disk is now stale or missing — the caller is expected to say so rather than
-   *  reporting a clean save, since from the user's side nothing else distinguishes the two. */
-  async writeNote(note: Note, previousId?: string): Promise<boolean> {
-    let folderOk = true
-    if (dirHandle) {
-      try {
-        await writeNoteFile(dirHandle, note, previousId)
-      } catch {
-        folderOk = false // cache below still keeps the note safe
-      }
-    }
-    if (previousId !== undefined && previousId !== note.id) {
-      await notesCache.delete(previousId)
-    }
+   *  Only the cache is written before this returns. The folder copy is queued (see folderSync) and
+   *  catches up in the background — at network speed, on a remote share — so a save never waits on
+   *  the folder. How the folder is doing is reported through onFolderSync. */
+  async writeNote(note: Note, previousId?: string): Promise<void> {
+    const renamed = previousId !== undefined && previousId !== note.id
     await notesCache.put(note)
-    return folderOk
+    if (renamed) await notesCache.delete(previousId)
+    const index = await getIndex()
+    if (renamed) index.delete(previousId)
+    index.set(note.id, toMetadata(note))
+    if (dirHandle) await folderSync.queueWrite(note.id, previousId)
   },
 
   async deleteNote(id: string): Promise<void> {
-    const existing = await notesCache.get(id)
-    if (dirHandle && existing) {
-      try {
-        await deleteNoteFile(dirHandle, existing)
-      } catch {
-        // ignore — file may already be gone
-      }
-    }
     await notesCache.delete(id)
+    ;(await getIndex()).delete(id)
+    if (dirHandle) await folderSync.queueDelete(id)
+  },
+
+  /** Follows whether the folder has caught up with the cache, and whether writing to it is failing.
+   *  Returns the unsubscribe function. */
+  onFolderSync(listener: (state: FolderSyncState) => void): () => void {
+    return folderSync.subscribe(listener)
+  },
+
+  /** Retries the folder now, rather than at the next automatic attempt. */
+  retryFolderSync(): void {
+    folderSync.retry()
   },
 
   /** Opens the note's real saved file (not a fresh copy) in a new tab. Returns false if there's no
-   *  connected folder to open a real file from — the caller should fall back to a download instead. */
+   *  connected folder to open a real file from, or the file can't be brought up to date right now —
+   *  the caller should fall back to a download of the current version instead. */
   async openNoteFile(id: string): Promise<boolean> {
     if (!dirHandle) return false
+    if (!(await folderSync.whenIdle())) return false
     try {
       await openNoteFileOnDisk(dirHandle, id)
       return true

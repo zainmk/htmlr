@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { storage, type StorageStatus } from '../storage'
+import { storage, type StorageStatus, type FolderSyncState } from '../storage'
 import { usePlatform } from './usePlatform'
 import { renderNoteHtml, parseNoteHtml, filenameFor, slugify } from '../storage/noteFile'
 import type { Note, NoteMetadata, SaveStatus } from '../types'
@@ -59,10 +59,6 @@ export function useNotes() {
   const [activeNote, setActiveNote] = useState<Note | null>(null)
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved')
   const [titleConflict, setTitleConflict] = useState(false)
-  // True when a folder is connected but the last write didn't reach it. Deliberately outlives a
-  // note switch: it describes the folder, not the note, and clears itself the next time any write
-  // gets through. Always false in browser-only mode, where there is no folder to fail.
-  const [folderError, setFolderError] = useState(false)
   // Bumped every time a *different* note is opened — and never by a save, rename, pin or reorder.
   // The editor keys its content swap off this rather than off any field of the note itself, so
   // switching notes always reloads the body and a rename never does.
@@ -73,6 +69,23 @@ export function useNotes() {
   /** Ceiling on how long an edit can sit unsaved. A trailing debounce on its own never fires while
    *  you keep typing, so a long uninterrupted burst would stay unwritten indefinitely. */
   const SAVE_MAX_WAIT_MS = 5_000
+  /** How long the folder can trail the cache before the status bar mentions it. */
+  const FOLDER_SLOW_MS = 1_500
+
+  // How the folder copy is doing — reported by the background folder sync, not by any one save.
+  // `error` is true when a folder is connected but the last write didn't reach it. Deliberately
+  // outlives a note switch: it describes the folder, not the note, and clears itself the next time
+  // any write gets through. Both stay false in browser-only mode, where there is no folder.
+  const [folderSync, setFolderSync] = useState<FolderSyncState>({ pending: false, error: false })
+  useEffect(() => storage.onFolderSync(setFolderSync), [])
+  // Whether the folder has been behind for a noticeable while. On a local disk it catches up within
+  // a blink of every save, and a status that flickered each time would just be noise.
+  const [folderSlow, setFolderSlow] = useState(false)
+  useEffect(() => {
+    if (!folderSync.pending) { setFolderSlow(false); return }
+    const timer = setTimeout(() => setFolderSlow(true), FOLDER_SLOW_MS)
+    return () => clearTimeout(timer)
+  }, [folderSync.pending])
 
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const maxWaitTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -89,8 +102,19 @@ export function useNotes() {
   // Lets the flush reach the current note without being re-created (and re-scheduled) on every edit.
   const activeNoteRef = useRef<Note | null>(null)
   activeNoteRef.current = activeNote
+  /** Saves run one after another, never side by side — each one chains onto this. */
+  const flushQueue = useRef<Promise<unknown>>(Promise.resolve())
+  /** Old id → current id, for renames saved since the open note was opened. An edit made while a
+   *  rename was being saved was built from the note under its old id; this is how it finds the note
+   *  again instead of re-creating the old name alongside the new one. */
+  const renamedIds = useRef(new Map<string, string>())
+  const currentIdFor = (id: string) => renamedIds.current.get(id) ?? id
 
-  const markNoteOpened = useCallback(() => setOpenToken(t => t + 1), [])
+  const markNoteOpened = useCallback(() => {
+    // Ids are only tracked within one note: a different note may legitimately reuse an old name.
+    renamedIds.current.clear()
+    setOpenToken(t => t + 1)
+  }, [])
 
   const loadNoteList = useCallback(async () => {
     const list = await storage.listNotes()
@@ -101,51 +125,76 @@ export function useNotes() {
   // A note's id is always slugify(title) — no random suffix. Saves it under that id if the slug
   // is free; if another note already owns it, keeps the note under its previous id/filename
   // instead of colliding, and reports the conflict so the UI can warn about it.
-  const commitNote = useCallback(async (note: Note): Promise<{ note: Note; conflict: boolean; folderOk: boolean }> => {
+  const commitNote = useCallback(async (note: Note): Promise<{ note: Note; conflict: boolean }> => {
     const desiredId = slugify(note.title)
     if (desiredId === note.id) {
-      return { note, conflict: false, folderOk: await storage.writeNote(note) }
+      await storage.writeNote(note)
+      return { note, conflict: false }
     }
     if (await storage.hasNote(desiredId)) {
-      return { note, conflict: true, folderOk: await storage.writeNote(note) }
+      await storage.writeNote(note)
+      return { note, conflict: true }
     }
     const renamed = { ...note, id: desiredId }
-    return { note: renamed, conflict: false, folderOk: await storage.writeNote(renamed, note.id) }
+    await storage.writeNote(renamed, note.id)
+    return { note: renamed, conflict: false }
   }, [])
 
-  // Commits whatever edit is pending (if any) right now instead of waiting for the debounce, and
-  // returns the note as actually saved — its id may differ from what the caller last saw if this
-  // commit happened to also resolve a pending rename.
   const clearSaveTimers = () => {
     if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null }
     if (maxWaitTimer.current) { clearTimeout(maxWaitTimer.current); maxWaitTimer.current = null }
   }
 
-  const flushPending = useCallback(async (): Promise<Note | null> => {
-    clearSaveTimers()
+  const recordRename = (from: string, to: string) => {
+    const ids = renamedIds.current
+    ids.delete(to) // `to` is the live name again, so nothing should redirect away from it
+    for (const [old, current] of ids) if (current === from) ids.set(old, to)
+    ids.set(from, to)
+  }
 
+  const commitPending = useCallback(async (): Promise<Note | null> => {
     const getContent = pendingContent.current
     // A content edit has no pending note of its own — the base is whatever's open.
-    const base = pendingNote.current ?? (getContent ? activeNoteRef.current : null)
-    if (!base) return null
+    const pending = pendingNote.current ?? (getContent ? activeNoteRef.current : null)
+    if (!pending) return null
     pendingNote.current = null
     pendingContent.current = null
 
     // The one place the document gets serialised.
     const content = getContent?.() ?? null
+    const base = { ...pending, id: currentIdFor(pending.id) }
     const note: Note = content === null
       ? base
       : { ...base, content, updatedAt: new Date().toISOString() }
 
-    const { note: saved, conflict, folderOk } = await commitNote(note)
+    const { note: saved, conflict } = await commitNote(note)
+    if (saved.id !== note.id) {
+      recordRename(note.id, saved.id)
+      writeNoteIdToUrl(saved.id, false)
+    }
     setTitleConflict(conflict)
-    setFolderError(!folderOk)
-    setActiveNote(current => (current && current.id === note.id ? saved : current))
-    if (saved.id !== note.id) writeNoteIdToUrl(saved.id, false)
-    setSaveStatus('saved')
+    // Take on what the save settled (the id, the serialised body) without rolling back anything
+    // typed while it ran: the title box shows activeNote, so swapping in `saved` wholesale would
+    // erase title edits made in the meantime.
+    setActiveNote(current => {
+      if (!current || currentIdFor(current.id) !== saved.id) return current
+      return current === pending ? saved : { ...current, id: saved.id, content: saved.content }
+    })
+    if (!pendingNote.current && !pendingContent.current) setSaveStatus('saved')
     await loadNoteList()
     return saved
   }, [commitNote, loadNoteList])
+
+  // Commits whatever edit is pending (if any) right now instead of waiting for the debounce, and
+  // returns the note as actually saved — its id may differ from what the caller last saw if this
+  // commit happened to also resolve a pending rename. Waits its turn behind any save already
+  // running, so two saves never interleave and the later edit is always the one that sticks.
+  const flushPending = useCallback((): Promise<Note | null> => {
+    clearSaveTimers()
+    const run = flushQueue.current.then(commitPending)
+    flushQueue.current = run.catch(() => {})
+    return run
+  }, [commitPending])
 
   // Opens the note named in the URL if it exists in the given list, otherwise the most recent note.
   const openFirstNote = useCallback(async (list: NoteMetadata[]) => {
@@ -251,7 +300,7 @@ export function useNotes() {
     const { id, title } = await uniqueUntitled()
     const now = new Date().toISOString()
     const note: Note = { id, title, content: '', createdAt: now, updatedAt: now }
-    setFolderError(!(await storage.writeNote(note)))
+    await storage.writeNote(note)
     await loadNoteList()
     setActiveNote(note)
     setSaveStatus('saved')
@@ -303,7 +352,7 @@ export function useNotes() {
       }
       await storage.deleteNote(id)
       const list = await loadNoteList()
-      if (activeNote?.id === id) {
+      if (activeNoteRef.current?.id === id) {
         const next = list[0] ? await storage.readNote(list[0].id) : null
         setActiveNote(next)
         setSaveStatus('saved')
@@ -312,7 +361,9 @@ export function useNotes() {
         writeNoteIdToUrl(next?.id ?? null, false)
       }
     },
-    [activeNote, loadNoteList, flushPending, markNoteOpened],
+    // activeNote is read through its ref so this stays stable across keystrokes — the sidebar is
+    // memoized and would otherwise re-render on every one.
+    [loadNoteList, flushPending, markNoteOpened],
   )
 
   // Pinning keeps a note at the top of the list. Pin state + manual order live in the note's file
@@ -327,7 +378,7 @@ export function useNotes() {
       // Newly pinned notes go to the top of the pinned group: a smaller pinnedOrder sorts higher,
       // and -Date.now() is smaller than any order a manual reorder assigns (0, 1, 2, …).
       : { ...note, pinned: true, pinnedOrder: -Date.now() }
-    setFolderError(!(await storage.writeNote(updated)))
+    await storage.writeNote(updated)
     setActiveNote(current => (current && current.id === id ? updated : current))
     await loadNoteList()
   }, [flushPending, loadNoteList])
@@ -339,9 +390,9 @@ export function useNotes() {
     await flushPending()
     const orderIndex = new Map(orderedIds.map((id, i) => [id, i]))
 
-    // Optimistic: resort the list in memory right away so the sidebar snaps into the new order
-    // instead of waiting on the per-note disk writes below (which lag on a network/cloud folder).
-    // The pinned notes lead the list, in the given order; the unpinned tail is untouched.
+    // Resort the list in memory right away so the sidebar snaps into the new order without waiting
+    // on the per-note cache writes below. The pinned notes lead the list, in the given order; the
+    // unpinned tail is untouched.
     setNoteList(prev => {
       const pinned = prev
         .filter(n => orderIndex.has(n.id))
@@ -356,26 +407,19 @@ export function useNotes() {
       return idx === -1 ? current : { ...current!, pinnedOrder: idx }
     })
 
-    // Persist in the background, in parallel — only the notes whose order actually changed.
-    const results = await Promise.all(orderedIds.map(async (id, i) => {
+    // Persist in parallel — only the notes whose order actually changed.
+    await Promise.all(orderedIds.map(async (id, i) => {
       const note = await storage.readNote(id)
-      if (note && note.pinnedOrder !== i) return storage.writeNote({ ...note, pinnedOrder: i })
-      return true
+      if (note && note.pinnedOrder !== i) await storage.writeNote({ ...note, pinnedOrder: i })
     }))
-    // Only ever raises the flag here: a reorder that wrote nothing at all isn't evidence the
-    // folder is healthy again, so it must not clear a warning an earlier failure put up.
-    if (results.some(ok => !ok)) setFolderError(true)
   }, [flushPending])
 
-  // Re-attempts the folder write for the open note. Without this the only way out of the
-  // "saved in browser only" state is to type something and trigger a fresh save, which is a poor
-  // way to ask "is the folder back yet?".
+  // Retries the folder right away. It retries on its own every so often, but "is the folder back
+  // yet?" deserves an answer now rather than whenever the next attempt comes round.
   const retrySave = useCallback(async () => {
-    // A pending edit flushes on its own terms, and that flush is itself the retry.
-    if (await flushPending()) return
-    if (!activeNote) return
-    setFolderError(!(await storage.writeNote(activeNote)))
-  }, [flushPending, activeNote])
+    await flushPending()
+    storage.retryFolderSync()
+  }, [flushPending])
 
   // Pulls .html files in from wherever the platform's file picker can reach — on iOS that's the
   // Files app, which is the only way notes get onto the phone without a sync backend.
@@ -421,11 +465,12 @@ export function useNotes() {
   }, [flushPending, loadNoteList, markNoteOpened])
 
   // Opens the note's real saved file in a new tab. Flushes any pending edit first so the file
-  // reflects the latest content — that flush may also resolve a pending rename, so the id it
-  // actually got saved under can differ from what the caller passed in. Falls back to a fresh
-  // download when there's no connected folder to open a real file from (browser-only fallback).
+  // reflects the latest content — that flush (or one already running) may also resolve a pending
+  // rename, so the id it actually got saved under can differ from what the caller passed in. Falls
+  // back to a fresh download when there's no connected folder to open a real file from
+  // (browser-only fallback), or the folder can't be brought up to date right now.
   const openNoteFile = useCallback(async (note: Note) => {
-    const saved = (await flushPending()) ?? note
+    const saved = (await flushPending()) ?? (await storage.readNote(currentIdFor(note.id))) ?? note
     const opened = await storage.openNoteFile(saved.id)
     if (opened) return
 
@@ -457,7 +502,8 @@ export function useNotes() {
   }, [flushPending, platform.prefersShareSheet])
 
   return {
-    status, folderName, noteList, activeNote, saveStatus, titleConflict, openToken, folderError,
+    status, folderName, noteList, activeNote, saveStatus, titleConflict, openToken,
+    folderError: folderSync.error, folderSyncing: folderSlow,
     isUsingFolder: storage.isUsingFolder(),
     chooseDirectory, reconnect, continueWithoutFolder,
     openNote, createNote, updateTitle, updateContent, deleteNote, togglePin, reorderPinned, openNoteFile, retrySave,

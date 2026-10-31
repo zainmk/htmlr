@@ -29,6 +29,8 @@ htmlr uses a two-layer storage model:
 
 2. **Cache — IndexedDB.** Re-reading every file from disk on every load would be slow, so the note list and content are mirrored into IndexedDB. On startup the app shows the cached list instantly, then reconciles it against the folder in the background (picks up files added/edited/removed outside the app).
 
+**Saving:** an edit is saved to the cache 800ms after you stop typing (or every 5s while you keep going), and the folder is brought up to date in the background, one write at a time and always with the newest version. Typing, switching notes and creating notes never wait on the folder — which matters when it's a NAS reached from outside your LAN, where a single write can take seconds. If the folder falls behind for a moment the status bar says "Saving to folder…"; if it can't be reached it says "Saved in browser only" and keeps retrying. What the folder is still owed is remembered across restarts, so closing the app mid-write is safe — it finishes the next time it opens.
+
 **Conflict handling:** when the same note differs between the cache and the folder, the version with the newer `updatedAt` wins. This matters when the folder is a network mount (NAS, a cloud-sync client's drive) that was briefly unreachable — an edit made during the outage is kept and written back to the folder once it's reachable again, instead of being silently overwritten by the stale on-disk copy.
 
 **Browsers without File System Access support** (Firefox, Safari — including all of iOS) fall back to IndexedDB-only storage, so the app still works: full editing and download-as-file remain available; you just don't get the live on-disk folder until you switch to a Chromium-based browser.
@@ -69,6 +71,7 @@ src/
     usePwaInstall.ts     captures the browser install prompt for the welcome screen
   storage/
     index.ts             orchestrates cache + folder sync (timestamp-based reconcile)
+    folderSync.ts        background, one-at-a-time folder writes with a persisted backlog
     fs.ts                File System Access API wrapper (pick/read/write/permissions)
     db.ts                IndexedDB wrapper (note cache + key-value store)
     noteFile.ts          note <-> HTML file serialization, shared by storage and export

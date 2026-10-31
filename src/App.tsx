@@ -21,7 +21,7 @@ const NARROW_VIEWPORT_BREAKPOINT = 768
 export default function App() {
   const {
     status, folderName, isUsingFolder,
-    noteList, activeNote, saveStatus, titleConflict, openToken, folderError,
+    noteList, activeNote, saveStatus, titleConflict, openToken, folderError, folderSyncing,
     chooseDirectory, reconnect, continueWithoutFolder,
     openNote, createNote, updateTitle, updateContent, deleteNote, togglePin, reorderPinned, openNoteFile, retrySave,
     importNotes,
@@ -58,6 +58,16 @@ export default function App() {
   const closeDrawerOnMobile = useCallback(() => {
     if (isDrawer) setSidebarCollapsed(true)
   }, [isDrawer])
+
+  // Stable, so the memoized sidebar sits out the re-render every title keystroke causes.
+  const handleOpenNote = useCallback((id: string) => {
+    openNote(id)
+    closeDrawerOnMobile()
+  }, [openNote, closeDrawerOnMobile])
+  const handleCreateNote = useCallback(() => {
+    createNote()
+    closeDrawerOnMobile()
+  }, [createNote, closeDrawerOnMobile])
 
   // Esc toggles the sidebar open/closed from anywhere in the app.
   useEffect(() => {
@@ -151,8 +161,8 @@ export default function App() {
           folderName={folderName}
           isUsingFolder={isUsingFolder}
           collapsed={sidebarCollapsed}
-          onOpen={id => { openNote(id); closeDrawerOnMobile() }}
-          onCreate={() => { createNote(); closeDrawerOnMobile() }}
+          onOpen={handleOpenNote}
+          onCreate={handleCreateNote}
           onDelete={deleteNote}
           onTogglePin={togglePin}
           onReorderPinned={reorderPinned}
@@ -182,6 +192,7 @@ export default function App() {
               saveStatus={saveStatus}
               titleConflict={titleConflict}
               folderError={folderError}
+              folderSyncing={folderSyncing}
               folderName={folderName}
               sidebarCollapsed={sidebarCollapsed}
               onTitleChange={title => updateTitle(title, activeNote)}

@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from 'react'
+import { Fragment, memo, useEffect, useRef, useState } from 'react'
 import { Plus, FileUp, FileText, Trash2, FolderOpen, HardDrive, Pin, PinOff } from 'lucide-react'
 import type { NoteMetadata } from '../types'
 import type { ImportResult } from '../hooks/useNotes'
@@ -19,21 +19,29 @@ interface Props {
   onImport: (files: File[]) => Promise<ImportResult>
 }
 
+// Built once: toLocale*String with options constructs a fresh formatter on every call, which made
+// these the single most expensive thing in a sidebar render.
+const timeFormat = new Intl.DateTimeFormat([], { hour: '2-digit', minute: '2-digit' })
+const weekdayFormat = new Intl.DateTimeFormat([], { weekday: 'short' })
+const dayFormat = new Intl.DateTimeFormat([], { month: 'short', day: 'numeric' })
+
 function formatDate(iso: string): string {
   const d = new Date(iso)
   const now = new Date()
   const diffDays = Math.floor((now.getTime() - d.getTime()) / 86_400_000)
-  if (diffDays === 0) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  if (diffDays === 0) return timeFormat.format(d)
   if (diffDays === 1) return 'Yesterday'
-  if (diffDays < 7) return d.toLocaleDateString([], { weekday: 'short' })
-  return d.toLocaleDateString([], { month: 'short', day: 'numeric' })
+  if (diffDays < 7) return weekdayFormat.format(d)
+  return dayFormat.format(d)
 }
 
 // Matches the sidebar's width transition — focusing before it finishes can land on a
 // zero-width (not yet reliably focusable) element in some browsers.
 const SIDEBAR_TRANSITION_MS = 200
 
-export function Sidebar({ notes, activeId, folderName, isUsingFolder, collapsed, onOpen, onCreate, onDelete, onTogglePin, onReorderPinned, onChooseDirectory, onImport }: Props) {
+// Memoized: typing a title re-renders the app on every keystroke, and nothing the sidebar shows has
+// changed until that edit is saved.
+export const Sidebar = memo(function Sidebar({ notes, activeId, folderName, isUsingFolder, collapsed, onOpen, onCreate, onDelete, onTogglePin, onReorderPinned, onChooseDirectory, onImport }: Props) {
   const itemRefs = useRef<(HTMLDivElement | null)[]>([])
   const createBtnRef = useRef<HTMLButtonElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
@@ -393,4 +401,4 @@ export function Sidebar({ notes, activeId, folderName, isUsingFolder, collapsed,
       </button>
     </aside>
   )
-}
+})
