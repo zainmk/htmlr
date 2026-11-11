@@ -46,11 +46,6 @@
   color: var(--text-muted);
 }
 
-.app-loading-folder-name {
-  color: var(--text);
-  font-weight: 600;
-}
-
 /* ── Layout ─────────────────────────────────────── */
 
 .app {
@@ -1172,6 +1167,10 @@
 .save-status--unsaved { color: var(--warning); }
 .save-status--folder-error { color: var(--danger); }
 .save-status--syncing { color: var(--text-muted); }
+
+/* The note's file size, in the counts: only coloured once it's big enough to slow things down. */
+.status-bar-size--large { color: var(--warning); }
+.status-bar-size--very-large { color: var(--danger); }
 
 /* The dot reads as "state"; the folder warning carries its own icon instead, so drop it there. */
 .save-status--folder-error::before { display: none; }

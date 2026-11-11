@@ -95,4 +95,25 @@ export const notesCache = {
   delete(id: string): Promise<void> {
     return run(NOTES_STORE, 'readwrite', s => s.delete(id))
   },
+  /** Replaces (or, with `next` null, deletes) a note only if `when` still holds for what's stored —
+   *  checked and applied in one transaction, so a save landing at the same moment can't be
+   *  overwritten by something older. Resolves to whether the change was applied. */
+  async updateIf(id: string, when: (stored: Note | undefined) => boolean, next: Note | null): Promise<boolean> {
+    const db = await openDb()
+    return new Promise<boolean>((resolve, reject) => {
+      const tx = db.transaction(NOTES_STORE, 'readwrite')
+      const store = tx.objectStore(NOTES_STORE)
+      let applied = false
+      const req = store.get(id)
+      req.onsuccess = () => {
+        if (!when(req.result as Note | undefined)) return
+        if (next) store.put(next)
+        else store.delete(id)
+        applied = true
+      }
+      tx.oncomplete = () => resolve(applied)
+      tx.onabort = () => reject(tx.error)
+      tx.onerror = () => reject(tx.error)
+    })
+  },
 }

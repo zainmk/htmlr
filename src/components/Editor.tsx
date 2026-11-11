@@ -1,25 +1,28 @@
-import { useEffect, useRef } from 'react'
-import { AlertTriangle } from 'lucide-react'
-import { useEditor, EditorContent } from '@tiptap/react'
+import { useEffect, useRef, useState } from 'react'
+import { useEditor, EditorContent, type UseEditorOptions } from '@tiptap/react'
 import type { EditorView } from '@tiptap/pm/view'
+import { EditorState } from '@tiptap/pm/state'
 import StarterKit from '@tiptap/starter-kit'
 import TaskList from '@tiptap/extension-task-list'
 import TaskItem from '@tiptap/extension-task-item'
 import TextAlign from '@tiptap/extension-text-align'
 import Highlight from '@tiptap/extension-highlight'
-import Placeholder from '@tiptap/extension-placeholder'
 import CharacterCount from '@tiptap/extension-character-count'
 import { ResizableImage } from './ResizableImage'
 import { EditorToolbar } from './EditorToolbar'
+import { EmptyNotePlaceholder } from './EmptyNotePlaceholder'
+import { StatusBar } from './StatusBar'
+import { noteHtml } from './noteHtml'
+import type { Store } from '../hooks/store'
 import type { Note, SaveStatus } from '../types'
 
 interface Props {
   note: Note
   /** Changes only when a different note is opened — never on save, rename, pin or reorder. */
   openToken: number
-  saveStatus: SaveStatus
+  saveStatus: Store<SaveStatus>
   titleConflict: boolean
-  /** A folder is connected but the last write didn't reach it — the note lives only in the cache. */
+  /** A folder is connected but can't be reached — the note lives only in the cache. */
   folderError: boolean
   /** Saved in the cache, and the folder has been catching up for a noticeable while (a slow or remote share). */
   folderSyncing: boolean
@@ -49,7 +52,7 @@ const extensions = [
   ResizableImage.configure({ inline: true, allowBase64: true }),
   TextAlign.configure({ types: ['heading', 'paragraph'] }),
   Highlight,
-  Placeholder.configure({ placeholder: 'Start writing…' }),
+  EmptyNotePlaceholder.configure({ placeholder: 'Start writing…' }),
   CharacterCount,
 ]
 
@@ -85,6 +88,13 @@ function handleImagePaste(view: EditorView, event: ClipboardEvent): boolean {
   return true
 }
 
+// Defined once, not inline: TipTap compares its options by reference on every render, and a fresh
+// object here made it reapply all of them to the live editor each time the component re-rendered.
+const editorProps: UseEditorOptions['editorProps'] = {
+  attributes: { class: 'prose-editor' },
+  handlePaste: handleImagePaste,
+}
+
 export function Editor({ note, openToken, saveStatus, titleConflict, folderError, folderSyncing, folderName, sidebarCollapsed, onTitleChange, onContentChange, onOpenFile, onRetrySave }: Props) {
   // Which note the editor's document currently holds. Tracked by openToken rather than by any
   // field of the note: note.id changes on rename (a rename isn't a note switch), and note.createdAt
@@ -92,20 +102,19 @@ export function Editor({ note, openToken, saveStatus, titleConflict, folderError
   // stamped at parse time and can collide, which used to leave the previous note's body on screen.
   const lastNoteKey = useRef<number | null>(null)
   const wasSidebarCollapsed = useRef(sidebarCollapsed)
+  // Only the first note's content: later ones are loaded by the swap below. Passing note.content
+  // itself would count as a changed option after every save (see editorProps).
+  const [initialContent] = useState(note.content)
 
   const editor = useEditor({
     extensions,
-    content: note.content,
+    content: initialContent,
     onUpdate: ({ editor }) => {
-      // Hands up a *getter*, not the HTML. Serialising the document is O(its size), and pasted
-      // images sit in it as base64 — so doing it here would re-serialise megabytes on every
-      // keystroke. The save is already debounced; this lets the serialisation be debounced with it.
-      onContentChange(() => (editor.isDestroyed ? null : editor.getHTML()))
+      // Hands up a *getter*, not the HTML, so converting the note happens once per save rather than
+      // per keystroke — and noteHtml only converts the blocks edited since the last save.
+      onContentChange(() => (editor.isDestroyed ? null : noteHtml(editor.state.doc)))
     },
-    editorProps: {
-      attributes: { class: 'prose-editor' },
-      handlePaste: (view, event) => handleImagePaste(view, event),
-    },
+    editorProps,
   })
 
   // Swap content when the active note changes
@@ -114,6 +123,14 @@ export function Editor({ note, openToken, saveStatus, titleConflict, folderError
     if (lastNoteKey.current !== openToken) {
       lastNoteKey.current = openToken
       editor.commands.setContent(note.content, { emitUpdate: false })
+      // A note switch isn't an edit, so each note starts with an empty undo history. Otherwise the
+      // first Ctrl+Z after switching brought the previous note's content back into this one — and
+      // the next save wrote it over this note's file — while the history kept every note opened so
+      // far in memory. A fresh state is how ProseMirror clears it; the empty transaction after it
+      // lets the toolbar see there's nothing to undo (and, changing nothing, saves nothing).
+      const { doc, plugins } = editor.state
+      editor.view.updateState(EditorState.create({ doc, plugins }))
+      editor.view.dispatch(editor.state.tr)
     }
   }, [editor, openToken, note.content])
 
@@ -123,32 +140,6 @@ export function Editor({ note, openToken, saveStatus, titleConflict, folderError
     wasSidebarCollapsed.current = sidebarCollapsed
     if (justClosed) editor?.commands.focus()
   }, [editor, sidebarCollapsed])
-
-  const wordCount = editor?.storage.characterCount?.words() ?? 0
-  const charCount = editor?.storage.characterCount?.characters() ?? 0
-
-  // Four states, in priority order: an edit still in the debounce window, then a save that reached
-  // the cache but couldn't reach the folder, then one the folder is still catching up on, then a
-  // clean save. The folder error is the one that used to be invisible — the write failed, was
-  // swallowed, and the bar still read "Saved".
-  const folderLabel = folderName ?? 'your notes folder'
-  const status = saveStatus === 'unsaved'
-    ? { kind: 'unsaved', label: 'Unsaved changes', title: "This edit hasn't been written yet." }
-    : folderError
-      ? {
-          kind: 'folder-error',
-          label: 'Saved in browser only',
-          title: `htmlr couldn't write this note to ${folderLabel}, so the file there is out of date. `
-            + "The note is safe in this browser's storage, and htmlr keeps retrying. Check the folder is reachable, or retry now.",
-        }
-      : folderSyncing
-        ? {
-            kind: 'syncing',
-            label: 'Saving to folder…',
-            title: `Saved in this browser; still writing to ${folderLabel}. A remote folder can take a while. `
-              + 'Closing htmlr now is safe — it finishes the next time it opens.',
-          }
-        : { kind: 'saved', label: 'Saved', title: '' }
 
   return (
     <div className="editor-pane">
@@ -177,22 +168,17 @@ export function Editor({ note, openToken, saveStatus, titleConflict, folderError
         <EditorContent editor={editor} className="editor-content" />
       </div>
 
-      <div className="status-bar">
-        <span className="status-bar-save">
-          <span className={`save-status save-status--${status.kind}`} title={status.title || undefined}>
-            {status.kind === 'folder-error' && <AlertTriangle size={11} />}
-            {status.label}
-          </span>
-          {status.kind === 'folder-error' && (
-            <button className="save-status-retry" onClick={onRetrySave} type="button">
-              Retry
-            </button>
-          )}
-        </span>
-        <span className="status-bar-counts">
-          {wordCount} word{wordCount !== 1 ? 's' : ''} · {charCount} char{charCount !== 1 ? 's' : ''}
-        </span>
-      </div>
+      {editor && (
+        <StatusBar
+          editor={editor}
+          note={note}
+          saveStatus={saveStatus}
+          folderError={folderError}
+          folderSyncing={folderSyncing}
+          folderName={folderName}
+          onRetrySave={onRetrySave}
+        />
+      )}
     </div>
   )
 }

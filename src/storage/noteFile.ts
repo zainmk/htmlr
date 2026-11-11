@@ -56,6 +56,12 @@ export function renderNoteHtml(note: Note): string {
 `
 }
 
+/** Size in bytes of the file renderNoteHtml writes for this note, given the UTF-8 size of its body —
+ *  the bulk of any note, which is then never encoded again just to be measured. */
+export function noteFileBytes(note: Omit<Note, 'content'>, contentBytes: number): number {
+  return new TextEncoder().encode(renderNoteHtml({ ...note, content: '' })).byteLength + contentBytes
+}
+
 /** Reconstructs a Note from a file previously written by renderNoteHtml. `id` is always the filename (sans extension) — the source of truth for identity is the file itself. */
 export function parseNoteHtml(html: string, id: string): Note | null {
   const doc = new DOMParser().parseFromString(html, 'text/html')

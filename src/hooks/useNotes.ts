@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { storage, type StorageStatus, type FolderSyncState } from '../storage'
 import { usePlatform } from './usePlatform'
+import { createStore } from './store'
 import { renderNoteHtml, parseNoteHtml, filenameFor, slugify } from '../storage/noteFile'
 import type { Note, NoteMetadata, SaveStatus } from '../types'
 
@@ -57,7 +58,9 @@ export function useNotes() {
   const [folderName, setFolderName] = useState<string | null>(null)
   const [noteList, setNoteList] = useState<NoteMetadata[]>([])
   const [activeNote, setActiveNote] = useState<Note | null>(null)
-  const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved')
+  // A store rather than state: it flips on the first keystroke after every save, and only the status
+  // bar shows it — as state, each flip re-rendered the whole app, editor and toolbar included.
+  const [saveStatus] = useState(() => createStore<SaveStatus>('saved'))
   const [titleConflict, setTitleConflict] = useState(false)
   // Bumped every time a *different* note is opened — and never by a save, rename, pin or reorder.
   // The editor keys its content swap off this rather than off any field of the note itself, so
@@ -71,6 +74,8 @@ export function useNotes() {
   const SAVE_MAX_WAIT_MS = 5_000
   /** How long the folder can trail the cache before the status bar mentions it. */
   const FOLDER_SLOW_MS = 1_500
+  /** How long to wait before trying to read the folder again after it couldn't be reached. */
+  const FOLDER_RETRY_MS = 30_000
 
   // How the folder copy is doing — reported by the background folder sync, not by any one save.
   // `error` is true when a folder is connected but the last write didn't reach it. Deliberately
@@ -78,6 +83,8 @@ export function useNotes() {
   // any write gets through. Both stay false in browser-only mode, where there is no folder.
   const [folderSync, setFolderSync] = useState<FolderSyncState>({ pending: false, error: false })
   useEffect(() => storage.onFolderSync(setFolderSync), [])
+  // The same, for reading: the last background read of the folder couldn't get through.
+  const [folderReadFailed, setFolderReadFailed] = useState(false)
   // Whether the folder has been behind for a noticeable while. On a local disk it catches up within
   // a blink of every save, and a status that flickered each time would just be noise.
   const [folderSlow, setFolderSlow] = useState(false)
@@ -109,6 +116,12 @@ export function useNotes() {
    *  again instead of re-creating the old name alongside the new one. */
   const renamedIds = useRef(new Map<string, string>())
   const currentIdFor = (id: string) => renamedIds.current.get(id) ?? id
+  /** A `?note=` link the cache couldn't answer when the app opened — a note made on another device,
+   *  say, that so far only the folder has. The background read opens it if it turns up, as long as
+   *  the note shown in its place is still the one on screen. */
+  const awaitedUrlNote = useRef<{ id: string; shownInstead: string | null } | null>(null)
+  const readRetryTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => { if (readRetryTimer.current) clearTimeout(readRetryTimer.current) }, [])
 
   const markNoteOpened = useCallback(() => {
     // Ids are only tracked within one note: a different note may legitimately reuse an old name.
@@ -180,10 +193,10 @@ export function useNotes() {
       if (!current || currentIdFor(current.id) !== saved.id) return current
       return current === pending ? saved : { ...current, id: saved.id, content: saved.content }
     })
-    if (!pendingNote.current && !pendingContent.current) setSaveStatus('saved')
+    if (!pendingNote.current && !pendingContent.current) saveStatus.set('saved')
     await loadNoteList()
     return saved
-  }, [commitNote, loadNoteList])
+  }, [commitNote, loadNoteList, saveStatus])
 
   // Commits whatever edit is pending (if any) right now instead of waiting for the debounce, and
   // returns the note as actually saved — its id may differ from what the caller last saw if this
@@ -192,7 +205,9 @@ export function useNotes() {
   const flushPending = useCallback((): Promise<Note | null> => {
     clearSaveTimers()
     const run = flushQueue.current.then(commitPending)
-    flushQueue.current = run.catch(() => {})
+    // Settles to nothing, not to the saved note: holding the last note saved — content, images and
+    // all — until the next save would keep it in memory after switching away from it.
+    flushQueue.current = run.then(() => {}, () => {})
     return run
   }, [commitPending])
 
@@ -201,11 +216,52 @@ export function useNotes() {
     const urlId = readNoteIdFromUrl()
     const targetId = urlId && list.some(n => n.id === urlId) ? urlId : list[0]?.id
     const note = targetId ? await storage.readNote(targetId) : null
+    awaitedUrlNote.current = urlId && urlId !== targetId ? { id: urlId, shownInstead: note?.id ?? null } : null
     setActiveNote(note)
     setTitleConflict(false)
     markNoteOpened()
     writeNoteIdToUrl(note?.id ?? null, false)
   }, [markNoteOpened])
+
+  // Brings in what changed in the folder — notes added, edited or removed outside the app, or on
+  // another device. Runs once the app is already showing the cache, so a slow (remote) or
+  // unreachable folder never holds up opening a note or typing in one.
+  const syncFromFolder = useCallback(async (): Promise<void> => {
+    if (readRetryTimer.current) { clearTimeout(readRetryTimer.current); readRetryTimer.current = null }
+    const { ok, changed } = await storage.syncFromFolder()
+    setFolderReadFailed(!ok)
+    if (!ok) {
+      readRetryTimer.current = setTimeout(() => { void syncFromFolder() }, FOLDER_RETRY_MS)
+      return
+    }
+    const awaited = awaitedUrlNote.current
+    awaitedUrlNote.current = null
+    if (changed.size === 0) return
+    const list = await loadNoteList()
+
+    // Decide whether what's on screen should change: to the linked note now that it's arrived, or to
+    // the folder's newer copy of the open note (edited on another device), or away from a note that
+    // was deleted from the folder. Undefined means leave it be.
+    const open = activeNoteRef.current
+    let next: Note | null | undefined
+    if (awaited && changed.has(awaited.id) && (open?.id ?? null) === awaited.shownInstead) {
+      next = await storage.readNote(awaited.id)
+    } else if (open && changed.has(open.id)) {
+      const fresh = await storage.readNote(open.id)
+      // Same timestamp: only the file's formatting differed, so there's nothing new to show.
+      if (!fresh) next = list[0] ? await storage.readNote(list[0].id) : null
+      else if (fresh.updatedAt !== open.updatedAt) next = fresh
+    }
+    // Never while anything typed is waiting to be saved — that typing is newer than whatever the
+    // folder had, and is about to be saved over it — nor if the user has moved on in the meantime.
+    const editing = pendingNote.current !== null || pendingContent.current !== null
+    if (next === undefined || editing || activeNoteRef.current !== open) return
+    setActiveNote(next)
+    saveStatus.set('saved')
+    setTitleConflict(false)
+    markNoteOpened()
+    writeNoteIdToUrl(next?.id ?? null, false)
+  }, [loadNoteList, markNoteOpened, saveStatus])
 
   useEffect(() => {
     (async () => {
@@ -216,6 +272,7 @@ export function useNotes() {
         if (result === 'ready' || result === 'fallback') {
           await openFirstNote(await loadNoteList())
         }
+        if (result === 'ready') void syncFromFolder()
       } catch (err) {
         // Storage couldn't be opened at all — IndexedDB blocked (Firefox private browsing, a
         // storage policy), or the folder read failed in a way init() doesn't classify. Without
@@ -225,7 +282,7 @@ export function useNotes() {
         setStatus('error')
       }
     })()
-  }, [loadNoteList, openFirstNote])
+  }, [loadNoteList, openFirstNote, syncFromFolder])
 
   // Closing the tab, closing the installed-app window, or switching away on mobile inside the
   // 800ms debounce window would otherwise silently drop the last burst of typing — commit it the
@@ -251,31 +308,36 @@ export function useNotes() {
       const note = id ? await storage.readNote(id) : null
       setActiveNote(note)
       setTitleConflict(false)
-      setSaveStatus('saved')
+      saveStatus.set('saved')
       markNoteOpened()
     }
     window.addEventListener('popstate', onPopState)
     return () => window.removeEventListener('popstate', onPopState)
-  }, [flushPending, markNoteOpened])
+  }, [flushPending, markNoteOpened, saveStatus])
 
   const chooseDirectory = useCallback(async () => {
     const ok = await storage.chooseDirectory()
     if (ok) {
+      // Read before showing anything, unlike at startup: a newly picked folder replaces the notes on
+      // screen, and showing the old folder's notes until it's read would just be confusing. If it
+      // can't be read right now, the connection still stands — carry on with the cache.
+      await syncFromFolder()
       setStatus('ready')
       setFolderName(storage.getDirectoryName())
       await openFirstNote(await loadNoteList())
     }
     return ok
-  }, [loadNoteList, openFirstNote])
+  }, [loadNoteList, openFirstNote, syncFromFolder])
 
   const reconnect = useCallback(async () => {
     const ok = await storage.reconnect()
     if (ok) {
       setStatus('ready')
       await openFirstNote(await loadNoteList())
+      void syncFromFolder()
     }
     return ok
-  }, [loadNoteList, openFirstNote])
+  }, [loadNoteList, openFirstNote, syncFromFolder])
 
   const continueWithoutFolder = useCallback(async () => {
     await storage.continueWithoutFolder()
@@ -288,12 +350,12 @@ export function useNotes() {
     const note = await storage.readNote(id)
     if (note) {
       setActiveNote(note)
-      setSaveStatus('saved')
+      saveStatus.set('saved')
       setTitleConflict(false)
       markNoteOpened()
       writeNoteIdToUrl(note.id, true)
     }
-  }, [flushPending, markNoteOpened])
+  }, [flushPending, markNoteOpened, saveStatus])
 
   const createNote = useCallback(async () => {
     await flushPending()
@@ -303,11 +365,11 @@ export function useNotes() {
     await storage.writeNote(note)
     await loadNoteList()
     setActiveNote(note)
-    setSaveStatus('saved')
+    saveStatus.set('saved')
     setTitleConflict(false)
     markNoteOpened()
     writeNoteIdToUrl(note.id, true)
-  }, [flushPending, loadNoteList, markNoteOpened])
+  }, [flushPending, loadNoteList, markNoteOpened, saveStatus])
 
   const scheduleFlush = useCallback(() => {
     if (saveTimer.current) clearTimeout(saveTimer.current)
@@ -318,25 +380,29 @@ export function useNotes() {
     }
   }, [flushPending])
 
-  // The body changed. All this records is *how* to get it — see pendingContent. `saveStatus` is
-  // already 'unsaved' after the first keystroke of a burst, so React bails out of re-rendering for
-  // the rest of it, and a content edit costs nothing beyond scheduling.
+  // The body changed. All this records is *how* to get it — see pendingContent. Setting the status
+  // only notifies the status bar, and only on the first keystroke of a burst, so a content edit
+  // costs nothing beyond scheduling.
   const updateContent = useCallback((getContent: () => string | null) => {
     pendingContent.current = getContent
-    setSaveStatus('unsaved')
+    saveStatus.set('unsaved')
     scheduleFlush()
-  }, [scheduleFlush])
+  }, [saveStatus, scheduleFlush])
 
   // The title is a controlled input, so unlike the body it does have to update state per keystroke.
-  // It's a short string, so that's cheap.
-  const updateTitle = useCallback((title: string, currentNote: Note) => {
-    const updated: Note = { ...currentNote, title, updatedAt: new Date().toISOString() }
+  // It's a short string, so that's cheap. Builds on the ref, updated right away, so keystrokes
+  // landing before the next render still chain onto each other.
+  const updateTitle = useCallback((title: string) => {
+    const current = activeNoteRef.current
+    if (!current) return
+    const updated: Note = { ...current, title, updatedAt: new Date().toISOString() }
+    activeNoteRef.current = updated
     setActiveNote(updated)
-    setSaveStatus('unsaved')
+    saveStatus.set('unsaved')
     setTitleConflict(false)
     pendingNote.current = updated
     scheduleFlush()
-  }, [scheduleFlush])
+  }, [saveStatus, scheduleFlush])
 
   const deleteNote = useCallback(
     async (id: string) => {
@@ -355,7 +421,7 @@ export function useNotes() {
       if (activeNoteRef.current?.id === id) {
         const next = list[0] ? await storage.readNote(list[0].id) : null
         setActiveNote(next)
-        setSaveStatus('saved')
+        saveStatus.set('saved')
         setTitleConflict(false)
         markNoteOpened()
         writeNoteIdToUrl(next?.id ?? null, false)
@@ -363,7 +429,7 @@ export function useNotes() {
     },
     // activeNote is read through its ref so this stays stable across keystrokes — the sidebar is
     // memoized and would otherwise re-render on every one.
-    [loadNoteList, flushPending, markNoteOpened],
+    [loadNoteList, flushPending, markNoteOpened, saveStatus],
   )
 
   // Pinning keeps a note at the top of the list. Pin state + manual order live in the note's file
@@ -414,12 +480,13 @@ export function useNotes() {
     }))
   }, [flushPending])
 
-  // Retries the folder right away. It retries on its own every so often, but "is the folder back
-  // yet?" deserves an answer now rather than whenever the next attempt comes round.
+  // Retries the folder right away, both ways. It retries on its own every so often, but "is the
+  // folder back yet?" deserves an answer now rather than whenever the next attempt comes round.
   const retrySave = useCallback(async () => {
     await flushPending()
     storage.retryFolderSync()
-  }, [flushPending])
+    void syncFromFolder()
+  }, [flushPending, syncFromFolder])
 
   // Pulls .html files in from wherever the platform's file picker can reach — on iOS that's the
   // Files app, which is the only way notes get onto the phone without a sync backend.
@@ -455,21 +522,23 @@ export function useNotes() {
       const note = await storage.readNote(lastImportedId)
       if (note) {
         setActiveNote(note)
-        setSaveStatus('saved')
+        saveStatus.set('saved')
         setTitleConflict(false)
         markNoteOpened()
         writeNoteIdToUrl(note.id, true)
       }
     }
     return result
-  }, [flushPending, loadNoteList, markNoteOpened])
+  }, [flushPending, loadNoteList, markNoteOpened, saveStatus])
 
-  // Opens the note's real saved file in a new tab. Flushes any pending edit first so the file
+  // Opens the open note's real saved file in a new tab. Flushes any pending edit first so the file
   // reflects the latest content — that flush (or one already running) may also resolve a pending
-  // rename, so the id it actually got saved under can differ from what the caller passed in. Falls
-  // back to a fresh download when there's no connected folder to open a real file from
-  // (browser-only fallback), or the folder can't be brought up to date right now.
-  const openNoteFile = useCallback(async (note: Note) => {
+  // rename, so the id it actually got saved under can differ from the one on screen. Falls back to a
+  // fresh download when there's no connected folder to open a real file from (browser-only
+  // fallback), or the folder can't be brought up to date right now.
+  const openNoteFile = useCallback(async () => {
+    const note = activeNoteRef.current
+    if (!note) return
     const saved = (await flushPending()) ?? (await storage.readNote(currentIdFor(note.id))) ?? note
     const opened = await storage.openNoteFile(saved.id)
     if (opened) return
@@ -503,7 +572,7 @@ export function useNotes() {
 
   return {
     status, folderName, noteList, activeNote, saveStatus, titleConflict, openToken,
-    folderError: folderSync.error, folderSyncing: folderSlow,
+    folderError: folderSync.error || folderReadFailed, folderSyncing: folderSlow,
     isUsingFolder: storage.isUsingFolder(),
     chooseDirectory, reconnect, continueWithoutFolder,
     openNote, createNote, updateTitle, updateContent, deleteNote, togglePin, reorderPinned, openNoteFile, retrySave,

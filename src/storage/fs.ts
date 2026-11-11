@@ -20,19 +20,26 @@ export async function verifyPermission(handle: FileSystemDirectoryHandle, reques
   return (await handle.requestPermission(descriptor)) === 'granted'
 }
 
-export async function readAllNoteFiles(dir: FileSystemDirectoryHandle): Promise<Note[]> {
-  const notes: Note[] = []
+export interface NoteFileEntry {
+  /** The filename without its extension — the note's id. */
+  id: string
+  handle: FileSystemFileHandle
+}
+
+/** Lists the folder's note files without opening any of them — over a network share, opening and
+ *  downloading every file is what makes reading the folder slow. */
+export async function listNoteFiles(dir: FileSystemDirectoryHandle): Promise<NoteFileEntry[]> {
+  const entries: NoteFileEntry[] = []
   for await (const [name, handle] of dir.entries()) {
     if (handle.kind !== 'file' || !name.toLowerCase().endsWith('.html')) continue
-    try {
-      const file = await (handle as FileSystemFileHandle).getFile()
-      const note = parseNoteHtml(await file.text(), name.replace(/\.html$/i, ''))
-      if (note) notes.push(note)
-    } catch {
-      // skip unreadable file rather than failing the whole sync
-    }
+    entries.push({ id: name.replace(/\.html$/i, ''), handle: handle as FileSystemFileHandle })
   }
-  return notes
+  return entries
+}
+
+/** Parses a note file that's already been opened. Null if it isn't a note. */
+export async function readNoteFile(file: File, id: string): Promise<Note | null> {
+  return parseNoteHtml(await file.text(), id)
 }
 
 export async function writeNoteFile(dir: FileSystemDirectoryHandle, note: Note, previousId?: string): Promise<void> {

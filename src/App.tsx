@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react'
-import { PanelLeftOpen, PanelLeftClose, FolderOpen, RefreshCw } from 'lucide-react'
+import { PanelLeftOpen, PanelLeftClose, RefreshCw } from 'lucide-react'
 import { Analytics } from '@vercel/analytics/react'
 import { useNotes } from './hooks/useNotes'
 import { usePwaInstall } from './hooks/usePwaInstall'
@@ -112,31 +112,9 @@ export default function App() {
     )
   }
 
-  // The connected folder still had permission but has since been deleted/moved/renamed on disk, so
-  // there's nothing left to load. Keep the spinner up (the app is, from the user's view, still
-  // trying to open their notes) and offer a way out by pointing it at a folder that exists.
-  if (status === 'missing-folder') {
-    return (
-      <div className="app-loading app-loading--recover">
-        <div className="app-loading-spinner" />
-        <div className="app-loading-prompt">
-          <button className="btn-primary" onClick={chooseDirectory}>
-            <FolderOpen size={15} />
-            Change folder
-          </button>
-          <p className="app-loading-prompt-text">
-            {folderName ? (
-              <><span className="app-loading-folder-name">{folderName}</span> couldn't be found.</>
-            ) : (
-              "Your notes folder couldn't be found."
-            )}{' '}
-            It may have been moved, renamed, or deleted.
-          </p>
-        </div>
-      </div>
-    )
-  }
-
+  // A connected folder that can't be read (an unreachable network share, or one moved or deleted)
+  // no longer stops the app here: it opens from the cache, and the status bar reports the folder
+  // (see useNotes' syncFromFolder), with the sidebar footer as the way to pick another.
   if (status !== 'ready' && status !== 'fallback') {
     return (
       <Welcome
@@ -195,9 +173,9 @@ export default function App() {
               folderSyncing={folderSyncing}
               folderName={folderName}
               sidebarCollapsed={sidebarCollapsed}
-              onTitleChange={title => updateTitle(title, activeNote)}
+              onTitleChange={updateTitle}
               onContentChange={updateContent}
-              onOpenFile={() => openNoteFile(activeNote)}
+              onOpenFile={openNoteFile}
               onRetrySave={retrySave}
             />
           ) : (

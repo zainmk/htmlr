@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect } from 'react'
-import type { Editor } from '@tiptap/react'
+import { memo, useState, useRef, useEffect } from 'react'
+import { useEditorState, type Editor } from '@tiptap/react'
 import {
   Bold, Italic, Underline, Strikethrough, Highlighter,
   Heading1, Heading2, Heading3,
@@ -87,7 +87,37 @@ function insertIndexAt(rowEl: HTMLElement, clientX: number): number {
   return btns.length
 }
 
-export function EditorToolbar({ editor, onOpenFile }: Props) {
+// Memoized, and fed by useEditorState below rather than by its parent re-rendering: saves used to
+// re-render the editor and with it this whole toolbar, which was most of what a re-render cost.
+export const EditorToolbar = memo(function EditorToolbar({ editor, onOpenFile }: Props) {
+  // What the buttons show for the current selection. Worked out on every editor change, but the
+  // toolbar only re-renders when one of these actually flips. TipTap doesn't re-render on its own,
+  // so before this the buttons only caught up whenever something else happened to re-render them.
+  const state = useEditorState({
+    editor,
+    selector: ({ editor }) => ({
+      canUndo: editor.can().undo(),
+      canRedo: editor.can().redo(),
+      bold: editor.isActive('bold'),
+      italic: editor.isActive('italic'),
+      underline: editor.isActive('underline'),
+      strike: editor.isActive('strike'),
+      highlight: editor.isActive('highlight'),
+      h1: editor.isActive('heading', { level: 1 }),
+      h2: editor.isActive('heading', { level: 2 }),
+      h3: editor.isActive('heading', { level: 3 }),
+      bulletList: editor.isActive('bulletList'),
+      orderedList: editor.isActive('orderedList'),
+      taskList: editor.isActive('taskList'),
+      code: editor.isActive('code'),
+      codeBlock: editor.isActive('codeBlock'),
+      blockquote: editor.isActive('blockquote'),
+      alignLeft: editor.isActive({ textAlign: 'left' }),
+      alignCenter: editor.isActive({ textAlign: 'center' }),
+      alignRight: editor.isActive({ textAlign: 'right' }),
+      link: editor.isActive('link'),
+    }),
+  })
   const [quickIds, setQuickIds] = useState<string[]>(loadQuickIds)
   const [customShortcuts, setCustomShortcuts] = useState<Record<string, Shortcut>>(loadCustomShortcuts)
   // The shortcut popup is right-click only, and always shows the full card (description, current
@@ -269,39 +299,39 @@ export function EditorToolbar({ editor, onOpenFile }: Props) {
   }
 
   const sz = 15
-  // Rebuilt every render so isActive/disabled always reflect the current selection.
+  // Rebuilt every render, from `state`, so isActive/disabled always reflect the current selection.
   const items: ToolItem[] = [
-    { id: 'undo', group: 0, icon: <Undo2 size={sz} />, label: 'Undo', action: () => editor.chain().focus().undo().run(), disabled: !editor.can().undo() },
-    { id: 'redo', group: 0, icon: <Redo2 size={sz} />, label: 'Redo', action: () => editor.chain().focus().redo().run(), disabled: !editor.can().redo() },
+    { id: 'undo', group: 0, icon: <Undo2 size={sz} />, label: 'Undo', action: () => editor.chain().focus().undo().run(), disabled: !state.canUndo },
+    { id: 'redo', group: 0, icon: <Redo2 size={sz} />, label: 'Redo', action: () => editor.chain().focus().redo().run(), disabled: !state.canRedo },
 
-    { id: 'bold', group: 1, icon: <Bold size={sz} />, label: 'Bold', action: () => editor.chain().focus().toggleBold().run(), isActive: editor.isActive('bold') },
-    { id: 'italic', group: 1, icon: <Italic size={sz} />, label: 'Italic', action: () => editor.chain().focus().toggleItalic().run(), isActive: editor.isActive('italic') },
-    { id: 'underline', group: 1, icon: <Underline size={sz} />, label: 'Underline', action: () => editor.chain().focus().toggleUnderline().run(), isActive: editor.isActive('underline') },
-    { id: 'strike', group: 1, icon: <Strikethrough size={sz} />, label: 'Strikethrough', action: () => editor.chain().focus().toggleStrike().run(), isActive: editor.isActive('strike') },
-    { id: 'highlight', group: 1, icon: <Highlighter size={sz} />, label: 'Highlight', action: () => editor.chain().focus().toggleHighlight().run(), isActive: editor.isActive('highlight') },
+    { id: 'bold', group: 1, icon: <Bold size={sz} />, label: 'Bold', action: () => editor.chain().focus().toggleBold().run(), isActive: state.bold },
+    { id: 'italic', group: 1, icon: <Italic size={sz} />, label: 'Italic', action: () => editor.chain().focus().toggleItalic().run(), isActive: state.italic },
+    { id: 'underline', group: 1, icon: <Underline size={sz} />, label: 'Underline', action: () => editor.chain().focus().toggleUnderline().run(), isActive: state.underline },
+    { id: 'strike', group: 1, icon: <Strikethrough size={sz} />, label: 'Strikethrough', action: () => editor.chain().focus().toggleStrike().run(), isActive: state.strike },
+    { id: 'highlight', group: 1, icon: <Highlighter size={sz} />, label: 'Highlight', action: () => editor.chain().focus().toggleHighlight().run(), isActive: state.highlight },
 
-    { id: 'h1', group: 2, icon: <Heading1 size={sz} />, label: 'Heading 1', action: () => editor.chain().focus().toggleHeading({ level: 1 }).run(), isActive: editor.isActive('heading', { level: 1 }) },
-    { id: 'h2', group: 2, icon: <Heading2 size={sz} />, label: 'Heading 2', action: () => editor.chain().focus().toggleHeading({ level: 2 }).run(), isActive: editor.isActive('heading', { level: 2 }) },
-    { id: 'h3', group: 2, icon: <Heading3 size={sz} />, label: 'Heading 3', action: () => editor.chain().focus().toggleHeading({ level: 3 }).run(), isActive: editor.isActive('heading', { level: 3 }) },
+    { id: 'h1', group: 2, icon: <Heading1 size={sz} />, label: 'Heading 1', action: () => editor.chain().focus().toggleHeading({ level: 1 }).run(), isActive: state.h1 },
+    { id: 'h2', group: 2, icon: <Heading2 size={sz} />, label: 'Heading 2', action: () => editor.chain().focus().toggleHeading({ level: 2 }).run(), isActive: state.h2 },
+    { id: 'h3', group: 2, icon: <Heading3 size={sz} />, label: 'Heading 3', action: () => editor.chain().focus().toggleHeading({ level: 3 }).run(), isActive: state.h3 },
 
-    { id: 'bulletList', group: 3, icon: <List size={sz} />, label: 'Bullet list', action: () => editor.chain().focus().toggleBulletList().run(), isActive: editor.isActive('bulletList') },
-    { id: 'orderedList', group: 3, icon: <ListOrdered size={sz} />, label: 'Ordered list', action: () => editor.chain().focus().toggleOrderedList().run(), isActive: editor.isActive('orderedList') },
-    { id: 'taskList', group: 3, icon: <ListChecks size={sz} />, label: 'Task list', action: () => editor.chain().focus().toggleTaskList().run(), isActive: editor.isActive('taskList') },
+    { id: 'bulletList', group: 3, icon: <List size={sz} />, label: 'Bullet list', action: () => editor.chain().focus().toggleBulletList().run(), isActive: state.bulletList },
+    { id: 'orderedList', group: 3, icon: <ListOrdered size={sz} />, label: 'Ordered list', action: () => editor.chain().focus().toggleOrderedList().run(), isActive: state.orderedList },
+    { id: 'taskList', group: 3, icon: <ListChecks size={sz} />, label: 'Task list', action: () => editor.chain().focus().toggleTaskList().run(), isActive: state.taskList },
 
-    { id: 'code', group: 4, icon: <Code size={sz} />, label: 'Inline code', action: () => editor.chain().focus().toggleCode().run(), isActive: editor.isActive('code') },
-    { id: 'codeBlock', group: 4, icon: <CodeSquare size={sz} />, label: 'Code block', action: () => editor.chain().focus().toggleCodeBlock().run(), isActive: editor.isActive('codeBlock') },
-    { id: 'blockquote', group: 4, icon: <Quote size={sz} />, label: 'Blockquote', action: () => editor.chain().focus().toggleBlockquote().run(), isActive: editor.isActive('blockquote') },
+    { id: 'code', group: 4, icon: <Code size={sz} />, label: 'Inline code', action: () => editor.chain().focus().toggleCode().run(), isActive: state.code },
+    { id: 'codeBlock', group: 4, icon: <CodeSquare size={sz} />, label: 'Code block', action: () => editor.chain().focus().toggleCodeBlock().run(), isActive: state.codeBlock },
+    { id: 'blockquote', group: 4, icon: <Quote size={sz} />, label: 'Blockquote', action: () => editor.chain().focus().toggleBlockquote().run(), isActive: state.blockquote },
     { id: 'hr', group: 4, icon: <Minus size={sz} />, label: 'Horizontal rule', action: () => editor.chain().focus().setHorizontalRule().run() },
 
-    { id: 'alignLeft', group: 5, icon: <AlignLeft size={sz} />, label: 'Align left', action: () => editor.chain().focus().setTextAlign('left').run(), isActive: editor.isActive({ textAlign: 'left' }) },
-    { id: 'alignCenter', group: 5, icon: <AlignCenter size={sz} />, label: 'Align center', action: () => editor.chain().focus().setTextAlign('center').run(), isActive: editor.isActive({ textAlign: 'center' }) },
-    { id: 'alignRight', group: 5, icon: <AlignRight size={sz} />, label: 'Align right', action: () => editor.chain().focus().setTextAlign('right').run(), isActive: editor.isActive({ textAlign: 'right' }) },
+    { id: 'alignLeft', group: 5, icon: <AlignLeft size={sz} />, label: 'Align left', action: () => editor.chain().focus().setTextAlign('left').run(), isActive: state.alignLeft },
+    { id: 'alignCenter', group: 5, icon: <AlignCenter size={sz} />, label: 'Align center', action: () => editor.chain().focus().setTextAlign('center').run(), isActive: state.alignCenter },
+    { id: 'alignRight', group: 5, icon: <AlignRight size={sz} />, label: 'Align right', action: () => editor.chain().focus().setTextAlign('right').run(), isActive: state.alignRight },
 
     {
       id: 'link', group: 6,
-      icon: editor.isActive('link') ? <Link2Off size={sz} /> : <Link2 size={sz} />,
-      label: editor.isActive('link') ? 'Remove link' : 'Add link',
-      action: setLink, isActive: editor.isActive('link'),
+      icon: state.link ? <Link2Off size={sz} /> : <Link2 size={sz} />,
+      label: state.link ? 'Remove link' : 'Add link',
+      action: setLink, isActive: state.link,
     },
 
     { id: 'openFile', group: 7, icon: <ExternalLink size={sz} />, label: 'Open saved .html file', action: onOpenFile, rightAligned: true },
@@ -583,4 +613,4 @@ export function EditorToolbar({ editor, onOpenFile }: Props) {
       )}
     </>
   )
-}
+})

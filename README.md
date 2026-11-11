@@ -14,6 +14,7 @@ Most note apps hold your notes hostage in a proprietary database or a company's 
 
 - **WYSIWYG editing** — headings, lists, task lists, code blocks, blockquotes, links, text alignment, highlighting
 - **Paste images directly** — embedded into the note as data URLs, so each file stays fully self-contained
+- **Note size at a glance** — the status bar shows the note's file size, amber past 10 MB and red past 25 MB. That size is nearly all pasted images, and it's what every save rewrites, so large notes open, save and sync to a remote folder more slowly, especially on slower devices
 - **Pin & reorder** — pin important notes to the top and drag to arrange them; the rest stay sorted by last-modified (pin state and order live in the note's file, so they travel with it)
 - **Export** — open or download the real saved `.html` file from the toolbar (works on every browser, including iOS Safari)
 - **Deep links** — `?note=<name>` in the URL opens that note directly; browser back/forward move between notes
@@ -27,7 +28,7 @@ htmlr uses a two-layer storage model:
 
 1. **Source of truth — a folder on your device.** On first launch you pick a folder via the browser's [File System Access API](https://developer.mozilla.org/en-US/docs/Web/API/File_System_API). Every note is saved as its own HTML file in that folder (e.g. `meeting-notes.html`), named from its title so it stays legible outside the app — titles are kept unique so names never collide. Each file is fully self-contained — title, content, and metadata (`data-htmlr-*` attributes) all live in one document, styled well enough to open directly in a browser with no app required. Renaming a note's title renames its file to match.
 
-2. **Cache — IndexedDB.** Re-reading every file from disk on every load would be slow, so the note list and content are mirrored into IndexedDB. On startup the app shows the cached list instantly, then reconciles it against the folder in the background (picks up files added/edited/removed outside the app).
+2. **Cache — IndexedDB.** Re-reading every file from disk on every load would be slow, so the note list and content are mirrored into IndexedDB. On startup the app shows the cached list instantly, then reconciles it against the folder in the background (picks up files added/edited/removed outside the app). Only files whose size or modified time changed since the last check are downloaded, so on a NAS reached from outside your LAN the check takes a moment rather than re-fetching every note. If the folder can't be reached at all, the app still opens from the cache, the status bar says so, and it keeps retrying.
 
 **Saving:** an edit is saved to the cache 800ms after you stop typing (or every 5s while you keep going), and the folder is brought up to date in the background, one write at a time and always with the newest version. Typing, switching notes and creating notes never wait on the folder — which matters when it's a NAS reached from outside your LAN, where a single write can take seconds. If the folder falls behind for a moment the status bar says "Saving to folder…"; if it can't be reached it says "Saved in browser only" and keeps retrying. What the folder is still owed is remembered across restarts, so closing the app mid-write is safe — it finishes the next time it opens.
 

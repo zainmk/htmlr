@@ -39,6 +39,9 @@ let loaded: Promise<void> | null = null
 const revisions = new Map<string, number>()
 let revisionCounter = 0
 let running: Promise<void> | null = null
+/** Writes are held while the folder is being read (see storage's reconcile), so the files it lists
+ *  can't shift underneath it — a rename landing mid-read would otherwise look like a new note. */
+let paused = false
 let error = false
 let retryTimer: ReturnType<typeof setTimeout> | null = null
 const listeners = new Set<(state: FolderSyncState) => void>()
@@ -66,19 +69,19 @@ function notify(): void {
 
 /** Starts working through the backlog, unless that's already happening. */
 function kick(): void {
-  if (running || !dir) return
+  if (running || !dir || paused) return
   if (retryTimer) { clearTimeout(retryTimer); retryTimer = null }
   running = drain(dir).then(ok => {
     running = null
+    notify()
     // Work queued in the moment between the last step and here would otherwise sit until the next save.
     if (ok && hasWork()) kick()
-    else notify()
   })
   notify()
 }
 
 async function drain(handle: FileSystemDirectoryHandle): Promise<boolean> {
-  while (dir === handle && hasWork()) {
+  while (dir === handle && hasWork() && !paused) {
     try {
       await step(handle)
       error = false
@@ -118,11 +121,23 @@ async function step(handle: FileSystemDirectoryHandle): Promise<void> {
 }
 
 export const folderSync = {
-  /** Points the sync at a folder and picks up whatever an earlier session left unfinished. Doesn't
-   *  start writing — call start() once the folder has been reconciled. */
+  /** Points the sync at a folder and picks up whatever an earlier session left unfinished. Writes
+   *  stay held until resume(), which the first read of the folder calls once it's done. */
   async connect(handle: FileSystemDirectoryHandle): Promise<void> {
     await ensureLoaded()
+    paused = true
     dir = handle
+  },
+
+  /** Holds writes, waiting out the one in flight (if any). */
+  async pause(): Promise<void> {
+    paused = true
+    while (running) await running
+  },
+
+  resume(): void {
+    paused = false
+    kick()
   },
 
   /** Drops everything owed. For switching to a different folder, which the old backlog doesn't belong to. */
@@ -134,7 +149,6 @@ export const folderSync = {
     notify()
   },
 
-  start: kick,
   retry: kick,
 
   /** Records that the folder needs the cached copy of `id`. Pass `previousId` for a rename, so the
